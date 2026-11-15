@@ -1,0 +1,5 @@
+# Store text with LF line endings; .bat files need CRLF to run correctly in cmd.exe
+* text=auto eol=lf
+*.bat text eol=crlf
+*.woff2 binary
+*.png binary
