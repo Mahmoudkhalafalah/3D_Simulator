@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMission, useStore, useWorld } from '../store';
 import { autoWire } from '../bench/wiring';
+import { courseSession, courseTag } from '../worlds/course';
 
 export function MissionPanel() {
   const world = useWorld();
@@ -31,6 +32,15 @@ export function MissionPanel() {
       {open && (
         <div className="mission-body">
           <p className="story">{mission.story}</p>
+          {!!mission.course?.length && (
+            <div className="course-chips">
+              {mission.course.map((id) => (
+                <button key={id} className="course-chip" title="Open the course map" onClick={() => set({ showCourse: true })}>
+                  📘 {courseTag(id)} · {courseSession(id)?.title}
+                </button>
+              ))}
+            </div>
+          )}
           <ol className="steps">
             {mission.steps.map((s, i) => (
               <li key={i}>{s}</li>

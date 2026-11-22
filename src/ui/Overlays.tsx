@@ -3,6 +3,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { cpp } from '@codemirror/lang-cpp';
 import { useMission, useStore, useWorld } from '../store';
 import { UPCOMING_WORLDS, WORLDS } from '../worlds';
+import { COURSE, courseTag } from '../worlds/course';
 import { stopCode } from '../sim/run';
 import { unlockAudio } from '../audio/sound';
 
@@ -62,6 +63,11 @@ export function Welcome() {
             </div>
           ))}
         </div>
+        <div className="welcome-foot">
+          <button className="ghost" onClick={() => set({ showCourse: true })}>
+            📘 Arduino course map: which mission goes with which lesson
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -80,9 +86,17 @@ export function MissionMap() {
           <h2>
             {world.emoji} {world.title} missions
           </h2>
-          <button className="ghost" onClick={() => useStore.setState({ showMissions: false })}>
-            ✕
-          </button>
+          <div className="head-actions">
+            <button className="ghost" onClick={() => useStore.setState({ showMissions: false, showCourse: true })}>
+              📘 Course map
+            </button>
+            <button className="ghost" onClick={() => useStore.setState({ showMissions: false, showWelcome: true })}>
+              🌍 Other worlds
+            </button>
+            <button className="ghost" onClick={() => useStore.setState({ showMissions: false })}>
+              ✕
+            </button>
+          </div>
         </div>
         <div className="mission-grid">
           {world.missions.map((m, i) => {
@@ -99,6 +113,7 @@ export function MissionMap() {
                 <span className="emoji">{m.emoji}</span>
                 <small>{m.objectives.length ? `Mission ${i + 1}` : 'Sandbox'}</small>
                 <b>{m.title}</b>
+                {!!m.course?.length && <span className="tile-course">📘 {m.course.map(courseTag).join(', ')}</span>}
                 {done && <span className="star">⭐ Done</span>}
               </button>
             );
@@ -240,6 +255,67 @@ export function ToolchainBanner() {
       ) : (
         <>⚠️ The Circuit World helper isn't running, so code can't be built. Start it with <code>start.bat</code> or <code>npm run dev</code>.</>
       )}
+    </div>
+  );
+}
+
+/** Which mission goes with which lesson of the Arduino course (for teachers and kids). */
+export function CourseMap() {
+  const show = useStore((s) => s.showCourse);
+  const completed = useStore((s) => s.completed);
+  if (!show) return null;
+  const close = () => useStore.setState({ showCourse: false });
+  const open = (worldId: string, missionId: string) => {
+    stopCode();
+    useStore.setState({ worldId, showCourse: false, showWelcome: false, welcomeSeen: true });
+    useStore.getState().openMission(missionId);
+  };
+  const missionsFor = (id: string) =>
+    WORLDS.flatMap((w) => w.missions.filter((m) => m.course?.includes(id)).map((m) => ({ world: w, mission: m })));
+  return (
+    <div className="overlay" onClick={close}>
+      <div className="modal course" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>📘 Arduino course map</h2>
+          <button className="ghost" onClick={close}>
+            ✕
+          </button>
+        </div>
+        <p className="course-intro">Every lesson of Arduino Levels 1-3 and the missions that practise it. Click a mission to open it.</p>
+        <div className="course-levels">
+          {[1, 2, 3].map((level) => (
+            <section key={level} className="course-level">
+              <h3>Level {level}</h3>
+              {COURSE.filter((c) => c.level === level).map((c) => {
+                const list = missionsFor(c.id);
+                return (
+                  <div key={c.id} className="course-row">
+                    <div className="course-title">
+                      <span className="course-num">S{c.session}</span> {c.title}
+                    </div>
+                    {list.length > 0 ? (
+                      <div className="course-missions">
+                        {list.map(({ world, mission }) => {
+                          const key = world.id + '/' + mission.id;
+                          return (
+                            <button key={key} className={'course-mission' + (completed[key] ? ' done' : '')} onClick={() => open(world.id, mission.id)}>
+                              {world.emoji} {mission.emoji} {mission.title}
+                              {completed[key] ? ' ⭐' : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="course-note">{c.note ?? 'No mission yet.'}</div>
+                    )}
+                    {list.length > 0 && c.note && <div className="course-note">{c.note}</div>}
+                  </div>
+                );
+              })}
+            </section>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

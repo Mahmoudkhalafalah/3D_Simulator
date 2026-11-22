@@ -3,7 +3,7 @@ import { TopBar } from './ui/TopBar';
 import { MissionPanel } from './ui/MissionPanel';
 import { CodePanel } from './ui/CodePanel';
 import { BottomPanel } from './ui/BottomPanel';
-import { Celebration, MissionMap, SolutionModal, ToolchainBanner, Welcome } from './ui/Overlays';
+import { Celebration, CourseMap, MissionMap, SolutionModal, ToolchainBanner, Welcome } from './ui/Overlays';
 import { WorldView } from './worlds/WorldView';
 import { Bench } from './bench/Bench';
 import { startLoop } from './sim/session';
@@ -41,6 +41,7 @@ export default function App() {
       </main>
       <Welcome />
       <MissionMap />
+      <CourseMap />
       <SolutionModal />
       <Celebration />
     </div>

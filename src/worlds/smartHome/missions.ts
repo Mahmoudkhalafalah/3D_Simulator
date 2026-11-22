@@ -8,6 +8,7 @@ const RAIL_POWER: [string, string][] = [
 export const SMART_HOME_MISSIONS: Mission[] = [
   {
     id: 'blink',
+    course: ['L1S2', 'L1S3'],
     title: 'Hello, Porch Light!',
     emoji: '💡',
     story: 'It is your first day as the house electrician. Make the porch light blink so the family can see their new smart home is alive!',
@@ -64,6 +65,7 @@ void loop() {
   },
   {
     id: 'doorbell',
+    course: ['L1S5', 'L1S6'],
     title: 'Ding Dong!',
     emoji: '🔔',
     story: 'Visitors keep knocking because the house has no doorbell. Build one: when someone presses the button, the chime plays a "ding-dong".',
@@ -130,6 +132,7 @@ void loop() {
   },
   {
     id: 'nightlight',
+    course: ['L1S4', 'L2S3'],
     title: 'Automatic Night Light',
     emoji: '🌙',
     story: 'The family always forgets to switch on the porch light at night. Use the light sensor on the roof so the light turns on by itself when it gets dark.',
@@ -201,6 +204,7 @@ void loop() {
   },
   {
     id: 'dimmer',
+    course: ['L1S4', 'L3S4'],
     title: 'Dimmer Switch',
     emoji: '🎛️',
     story: 'Grandma says the porch light is too bright. Give her a knob to make it brighter or dimmer, just like a real dimmer switch.',
@@ -262,6 +266,7 @@ void loop() {
   },
   {
     id: 'welcome',
+    course: ['L1S7', 'L1S12'],
     title: 'Welcome Home',
     emoji: '🚪',
     story: 'The family\'s hands are always full of shopping bags. Make the front door open by itself when someone walks up, and close again after they come in.',
@@ -339,6 +344,7 @@ void loop() {
   },
   {
     id: 'fan',
+    course: ['L1S7', 'L1S10'],
     title: 'Cool Breeze',
     emoji: '🌀',
     story: 'Summer is coming and the living room gets too hot. Use the temperature sensor to switch on the fan when it is warmer than 28 °C.',
@@ -415,6 +421,7 @@ void loop() {
   },
   {
     id: 'lampswitch',
+    course: ['L1S6', 'L1S10'],
     title: 'Click-Click Lamp',
     emoji: '🛋️',
     story: 'The big living-room lamp runs on mains power, which is far too strong for an Arduino. A relay is a switch the Arduino can flip safely. Make one press turn the lamp on, and the next press turn it off.',
@@ -497,6 +504,7 @@ void loop() {
   },
   {
     id: 'parking',
+    course: ['L1S7', 'L2S4'],
     title: 'Parking Helper',
     emoji: '🚗',
     story: 'Dad keeps bumping the car into the garage wall! Build a parking sensor that beeps when the car gets close, like the ones in real cars.',

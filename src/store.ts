@@ -33,6 +33,7 @@ interface State {
   showMissions: boolean;
   showWelcome: boolean;
   showSolution: boolean;
+  showCourse: boolean;
   hintIndex: number;
   toolchain: 'unknown' | 'ready' | 'missing' | 'offline';
   simSpeed: number;
@@ -88,6 +89,7 @@ export const useStore = create<State>()(
       showMissions: false,
       showWelcome: true,
       showSolution: false,
+      showCourse: false,
       hintIndex: 0,
       toolchain: 'unknown',
       simSpeed: 1,
