@@ -237,7 +237,7 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
             text: `ℹ️ ${d.name}'s ${p.name} pin goes straight to ${net.hasGnd ? 'GND' : 'power'}, so the Arduino can't ${p.dir === 'out' ? 'read' : 'control'} it.`,
             refs: [ref(p.name)],
           });
-        } else {
+        } else if (!p.optional) {
           issues.push({
             level: 'info',
             text: `🧩 Connect ${d.name}'s ${p.name} pin to an Arduino pin${p.analog ? ' (an analog pin like A0)' : ''}.`,

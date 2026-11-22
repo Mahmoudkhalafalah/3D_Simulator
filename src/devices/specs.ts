@@ -40,6 +40,8 @@ export interface PinSpec {
   analog?: boolean;
   /** I2C bus pin: must go to A4/SDA or A5/SCL */
   i2c?: 'SDA' | 'SCL';
+  /** Fine to leave unconnected (e.g. the digital output of a sensor that also has an analog one) */
+  optional?: boolean;
 }
 
 export interface DeviceSpec {
@@ -193,7 +195,7 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
     type: 'soil',
     title: 'Soil moisture sensor',
     blurb: 'Two prongs in the soil. AO is HIGH when dry and lower when wet; DO goes LOW when the soil is wet.',
-    pins: [VCC, GND, sigOut('DO', 'D', 'DO (LOW when wet)'), sigOut('AO', 'A', 'AO (analog: high = dry)', true)],
+    pins: [VCC, GND, { ...sigOut('DO', 'D', 'DO (LOW when wet)'), optional: true }, sigOut('AO', 'A', 'AO (analog: high = dry)', true)],
     pcb: '#0f766e',
     size: [2.6, 4.8],
   },
@@ -260,7 +262,7 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
     type: 'sound',
     title: 'Sound sensor',
     blurb: 'A tiny microphone. AO tells how loud it is; DO goes HIGH on a loud sound like a clap.',
-    pins: [sigOut('AO', 'A', 'AO (analog loudness)', true), GND, VCC, sigOut('DO', 'D', 'DO (HIGH when loud)')],
+    pins: [{ ...sigOut('AO', 'A', 'AO (analog loudness)', true), optional: true }, GND, VCC, { ...sigOut('DO', 'D', 'DO (HIGH when loud)'), optional: true }],
     pcb: '#0e7490',
     size: [2.6, 3.0],
   },

@@ -3,8 +3,10 @@
 import type { ComponentType } from 'react';
 import { SmartHomeScene } from './smartHome/Scene';
 import { TrafficTownScene } from './trafficTown/Scene';
+import { GardenScene } from './garden/Scene';
 
 export const SCENES: Record<string, ComponentType> = {
   smartHome: SmartHomeScene,
   trafficTown: TrafficTownScene,
+  garden: GardenScene,
 };
