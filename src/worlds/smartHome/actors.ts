@@ -1,5 +1,8 @@
-// The visitor who walks up to the front door. Pure logic, shared by the app and tests.
-import type { VisitorPhase } from '../types';
+// The Smart House's living parts: the visitor at the front door and the car in the
+// garage. Pure logic, shared by the app and tests.
+import type { DeviceState } from '../../devices/logic';
+import { baseSense, withSense } from '../sense';
+import type { MissionSetup, VisitorPhase, WorldInputs, WorldSim } from '../types';
 
 export const DOOR_X = -2;
 export const PORCH_Z = 2.95;
@@ -72,8 +75,56 @@ export function stepVisitor(v: VisitorState, dt: number, doorAngle: number): voi
   }
 }
 
-/** 0 at night, 1 in bright daylight. */
-export function daylight(hour: number): number {
-  const s = Math.sin(((hour - 6) / 12) * Math.PI);
-  return Math.min(1, Math.max(0, s * 1.4));
+export class SmartHomeSim implements WorldSim {
+  visitor = newVisitor();
+  carDistance = 350;
+  carDrive = 0;
+  crashed = false;
+  crashedAt = -10;
+  time = 0;
+  private events: string[] = [];
+
+  constructor(setup: MissionSetup = {}) {
+    if (typeof setup.carDistance === 'number') this.carDistance = setup.carDistance;
+  }
+
+  step(dt: number, _inputs: WorldInputs, states: Record<string, DeviceState>): void {
+    this.time += dt;
+    if (this.carDrive !== 0) {
+      let d = this.carDistance - this.carDrive * 70 * dt;
+      if (d <= 3) {
+        d = 3;
+        if (!this.crashed) {
+          this.crashed = true;
+          this.crashedAt = this.time;
+          this.events.push('bump');
+        }
+      }
+      this.carDistance = Math.min(400, d);
+    }
+    if (this.crashed && this.carDistance > 12) this.crashed = false;
+    stepVisitor(this.visitor, dt, states.door?.angle ?? 0);
+  }
+
+  sense(inputs: WorldInputs) {
+    const base = baseSense(inputs);
+    return withSense(base, {
+      pressed: (id) => base.pressed(id) || (id === 'doorbell' && this.visitor.ringing),
+      motion: (id) => id === 'motion' && visitorMotion(this.visitor),
+      distance: (id) => (id === 'parking' ? this.carDistance : 400),
+    });
+  }
+
+  snapshot() {
+    return { visitor: this.visitor.phase, carDistance: this.carDistance, crashed: this.crashed };
+  }
+
+  action(name: string, arg = 0): void {
+    if (name === 'visitor') sendVisitor(this.visitor);
+    if (name === 'car') this.carDrive = arg;
+  }
+
+  drainEvents(): string[] {
+    return this.events.splice(0);
+  }
 }

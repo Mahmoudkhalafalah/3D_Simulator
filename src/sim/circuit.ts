@@ -169,14 +169,14 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
     const spec = DEVICE_SPECS[d.type];
     const ref = (pin: string) => pinRef(d.id, pin);
     const wired = spec.pins.some((p) => wiredRefs.has(ref(p.name)));
-    const gndPin = spec.pins.find((p) => p.role === 'gnd')!;
+    const gndPin = spec.pins.find((p) => p.role === 'gnd');
     const vccPin = spec.pins.find((p) => p.role === 'vcc');
-    const gndNet = netOf.get(ref(gndPin.name))!;
+    const gndNet = gndPin ? netOf.get(ref(gndPin.name))! : null;
     const vccNet = vccPin ? netOf.get(ref(vccPin.name))! : null;
 
-    const gndOk = gndNet.hasGnd;
+    const gndOk = gndNet ? gndNet.hasGnd : true;
     const vccOk = vccNet ? vccNet.has5V || vccNet.has3V3 : true;
-    const reversed = !!vccNet && vccNet.hasGnd && (gndNet.has5V || gndNet.has3V3);
+    const reversed = !!vccNet && !!gndNet && vccNet.hasGnd && (gndNet.has5V || gndNet.has3V3);
     const supply = vccNet ? (vccNet.has5V ? 5 : vccNet.has3V3 ? 3.3 : 0) : 5;
     deviceWiring[d.id] = { powerOk: gndOk && vccOk && !reversed && !shorted, reversed, supply, wired };
 
@@ -188,7 +188,7 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
       issues.push({
         level: 'error',
         text: `🔄 ${d.name} is wired backwards! VCC must go to 5V (+) and GND to GND (-).`,
-        refs: [ref(gndPin.name), ref(vccPin!.name)],
+        refs: [ref(gndPin!.name), ref(vccPin!.name)],
       });
       continue;
     }
@@ -200,9 +200,9 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
         refs: [ref(vccPin.name)],
       });
     }
-    if (!gndOk) {
+    if (!gndOk && gndPin && gndNet) {
       const railHint = gndNet.hasRailMinus ? ' The blue - rail is not connected to an Arduino GND pin yet.' : '';
-      const loop = d.type === 'led' || d.type === 'buzzer' ? ' Electricity needs a full loop to flow!' : '';
+      const loop = ['led', 'buzzer', 'trafficLight', 'rgbLed', 'sevenSeg'].includes(d.type) ? ' Electricity needs a full loop to flow!' : '';
       issues.push({
         level: 'warn',
         text: `⏚ ${d.name} needs ground: connect its ${gndPin.short} (GND) pin to GND or the blue - rail.${railHint}${loop}`,
@@ -214,6 +214,22 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
     }
     for (const p of spec.pins.filter((p) => p.role === 'sig')) {
       const net = netOf.get(ref(p.name))!;
+      if (p.i2c) {
+        const want = p.i2c === 'SDA' ? 18 : 19;
+        const other = p.i2c === 'SDA' ? 19 : 18;
+        if (net.ios.includes(other)) {
+          issues.push({ level: 'warn', text: `🔀 ${d.name}: SDA and SCL are swapped. SDA goes to A4 (SDA) and SCL goes to A5 (SCL).`, refs: [ref(p.name)] });
+        } else if (!net.ios.includes(want) && wiredRefs.has(ref(p.name))) {
+          issues.push({
+            level: 'warn',
+            text: `📟 ${d.name}'s ${p.name} pin must go to ${p.i2c === 'SDA' ? 'A4' : 'A5'} (also labelled ${p.i2c}). That is where the Arduino's I2C ${p.i2c === 'SDA' ? 'data' : 'clock'} line is.`,
+            refs: [ref(p.name)],
+          });
+        } else if (!wiredRefs.has(ref(p.name))) {
+          issues.push({ level: 'info', text: `🧩 Connect ${d.name}'s ${p.name} pin to ${p.i2c === 'SDA' ? 'A4 (SDA)' : 'A5 (SCL)'}.`, refs: [ref(p.name)] });
+        }
+        continue;
+      }
       if (net.ios.length === 0) {
         if (net.has5V || net.has3V3 || net.hasGnd) {
           issues.push({
@@ -224,10 +240,16 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
         } else {
           issues.push({
             level: 'info',
-            text: `🧩 Connect ${d.name}'s ${p.name} pin to an Arduino pin${d.type === 'ldr' || d.type === 'temp' || d.type === 'pot' ? ' (an analog pin like A0)' : ''}.`,
+            text: `🧩 Connect ${d.name}'s ${p.name} pin to an Arduino pin${p.analog ? ' (an analog pin like A0)' : ''}.`,
             refs: [ref(p.name)],
           });
         }
+      } else if (p.analog && net.ios.every((io) => io < 14)) {
+        issues.push({
+          level: 'info',
+          text: `📈 ${d.name}'s ${p.name} pin gives a range of values, but ${ioName(net.ios[0])} can only read HIGH or LOW. Use an analog pin (A0-A5) and analogRead().`,
+          refs: [ref(p.name)],
+        });
       }
       if (p.dir === 'out') {
         const list = outputsByNet.get(net) ?? [];

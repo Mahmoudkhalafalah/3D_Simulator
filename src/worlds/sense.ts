@@ -1,0 +1,33 @@
+// Default sensor readings, built from the player's inputs. Worlds override the
+// sensors their actors affect (the car in front of the parking sensor, the train ...).
+import type { SenseMap } from '../devices/logic';
+import type { WorldInputs } from './types';
+
+/** 0 at night, 1 in bright daylight. */
+export function daylight(hour: number): number {
+  const s = Math.sin(((hour - 6) / 12) * Math.PI);
+  return Math.min(1, Math.max(0, s * 1.4));
+}
+
+export function baseSense(inputs: WorldInputs): SenseMap {
+  const v = inputs.values;
+  return {
+    pressed: (id) => !!inputs.pressed[id],
+    light: () => daylight(inputs.hour),
+    knob: (id) => v[id] ?? 0.5,
+    temperature: () => inputs.temperature,
+    humidity: () => inputs.humidity,
+    motion: () => false,
+    distance: () => 400,
+    obstacle: () => false,
+    moisture: (id) => v[id] ?? 0.5,
+    sound: (id) => v[id] ?? 0,
+    key: (id) => inputs.keys[id] ?? null,
+    axis: (id, axis) => v[`${id}.${axis}`] ?? 0.5,
+  };
+}
+
+/** Override some sensors of a base map. */
+export function withSense(base: SenseMap, over: Partial<SenseMap>): SenseMap {
+  return { ...base, ...over };
+}

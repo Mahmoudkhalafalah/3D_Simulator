@@ -33,22 +33,46 @@ export interface ModulePlacement {
   pos: Vec3;
 }
 
+/** Rows of modules in front of the rail, packed by each module's real width. */
 export function layoutModules(devices: DeviceInstance[]): ModulePlacement[] {
-  const n = devices.length;
-  const rows = Math.max(1, Math.ceil(n / 7));
-  const perRow = Math.ceil(n / rows);
-  return devices.map((device, i) => {
-    const row = Math.floor(i / perRow);
-    const inRow = Math.min(perRow, n - row * perRow);
-    const col = i % perRow;
-    const spacing = inRow <= 2 ? 7 : 5.6;
-    return { device, pos: [(col - (inRow - 1) / 2) * spacing, 0, 4.6 + row * 5.6] };
-  });
+  const GAP = 2.6;
+  const MAX_ROW = 38;
+  const rows: DeviceInstance[][] = [[]];
+  let rowWidth = 0;
+  for (const d of devices) {
+    const w = DEVICE_SPECS[d.type].size[0];
+    const row = rows[rows.length - 1];
+    if (row.length && rowWidth + GAP + w > MAX_ROW) {
+      rows.push([d]);
+      rowWidth = w;
+    } else {
+      row.push(d);
+      rowWidth += (row.length > 1 ? GAP : 0) + w;
+    }
+  }
+  // Spread short rows out a little so name tags never overlap
+  const out: ModulePlacement[] = [];
+  let top = 3.3;
+  for (const row of rows) {
+    const widths = row.map((d) => DEVICE_SPECS[d.type].size[0]);
+    const gap = row.length <= 2 ? GAP + 2 : GAP;
+    const total = widths.reduce((a, b) => a + b, 0) + gap * (row.length - 1);
+    let x = -total / 2;
+    let depth = 0;
+    row.forEach((device, i) => {
+      const [w, d] = DEVICE_SPECS[device.type].size;
+      out.push({ device, pos: [x + w / 2, 0, top + d / 2] });
+      x += widths[i] + gap;
+      depth = Math.max(depth, d);
+    });
+    top += depth + 3.0;
+  }
+  return out;
 }
 
 /** Total width the camera has to fit: the rail or the widest row of modules. */
 export function benchWidth(placements: ModulePlacement[]): number {
-  const modules = placements.reduce((w, p) => Math.max(w, Math.abs(p.pos[0]) * 2 + 5), 0);
+  const modules = placements.reduce((w, p) => Math.max(w, (Math.abs(p.pos[0]) + DEVICE_SPECS[p.device.type].size[0] / 2) * 2 + 2), 0);
   return Math.max(RAIL_LENGTH + 4, modules);
 }
 
@@ -81,5 +105,5 @@ export function pinPosition(ref: string, placements: ModulePlacement[]): Vec3 | 
 }
 
 export function benchDepth(placements: ModulePlacement[]): number {
-  return placements.reduce((z, p) => Math.max(z, p.pos[2] + 3), 6);
+  return placements.reduce((z, p) => Math.max(z, p.pos[2] + DEVICE_SPECS[p.device.type].size[1] / 2 + 1.7), 6);
 }

@@ -6,3 +6,6 @@ tools/
 release/
 Thumbs.db
 .DS_Store
+
+# Internal course material (not part of the app)
+Arduino_Course_Summary_response.txt

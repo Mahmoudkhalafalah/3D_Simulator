@@ -1,17 +1,17 @@
-// The main loop: advances the world (time of day, visitor, car), runs the Arduino,
-// checks mission objectives and drives sounds. 3D views read `live` every frame.
+// The main loop: advances the world (time of day, people, cars, plants), runs the
+// Arduino, checks mission objectives and drives sounds. 3D views read `live` every frame.
 import { SimEngine } from './engine';
 import { CLOCK_HZ } from './avr-runner';
-import { emptyState, type DeviceState, type WorldSense } from '../devices/logic';
-import { useStore, currentMission, currentProject, missionDevices } from '../store';
+import { emptyState, type DeviceState, type SenseMap } from '../devices/logic';
+import { useStore, currentMission, currentProject, missionDevices, currentInputs, projectKey } from '../store';
 import { getWorld } from '../worlds';
-import type { WorldSnapshot } from '../worlds/types';
+import type { WorldSim, WorldSnapshot } from '../worlds/types';
 import { MissionChecker } from '../worlds/checker';
-import { newVisitor, sendVisitor as send, stepVisitor, visitorMotion } from '../worlds/smartHome/actors';
-import { click, playBump, playObjective, playSuccess, setTone, silenceAll } from '../audio/sound';
+import { daylight } from '../worlds/sense';
+import { click, playBump, playObjective, playPop, playSuccess, setTone, silenceAll } from '../audio/sound';
 import type { Wire } from './circuit';
 
-export { DOOR_X } from '../worlds/smartHome/actors';
+export { daylight };
 
 export const live = {
   states: {} as Record<string, DeviceState>,
@@ -19,15 +19,17 @@ export const live = {
   /** Brightness of the Arduino's built-in "L" LED (pin 13) */
   boardL: 0,
   txFlash: 0,
-  visitor: newVisitor(),
-  carDrive: 0,
-  crashedAt: -10,
-  crashed: false,
   time: 0,
+  /** Seconds the current program has been running (module timestamps such as `ping` use this clock) */
+  engineTime: 0,
+  /** The world simulation (people, cars, plants...) and which world it belongs to */
+  sim: null as WorldSim | null,
+  worldId: '',
+  /** The world's own values, refreshed every frame (for the UI and 3D scenes) */
+  snap: {} as Record<string, unknown>,
+  /** What every sensor senses right now (the 3D views use it to show pressed buttons etc.) */
+  sense: null as SenseMap | null,
 };
-
-export { daylight } from '../worlds/smartHome/actors';
-import { daylight } from '../worlds/smartHome/actors';
 
 let engine: SimEngine | null = null;
 let serialBuffer = '';
@@ -37,36 +39,65 @@ let speedAcc = { wanted: 0, ran: 0, t: 0 };
 let cyclesPerMs = 20000;
 const relayMemory = new Map<string, boolean>();
 
-function effectivePressed(): Record<string, boolean> {
-  const pressed = { ...useStore.getState().pressed };
-  if (live.visitor.ringing) pressed.doorbell = true;
-  return pressed;
+// ---------- EEPROM: kept per project, like a real board keeps it between uploads ----------
+const eeproms = new Map<string, Uint8Array>();
+const eepromKey = (k: string) => `circuit-world-eeprom:${k}`;
+
+function loadEeprom(key: string): Uint8Array | undefined {
+  if (eeproms.has(key)) return eeproms.get(key);
+  try {
+    const raw = localStorage.getItem(eepromKey(key));
+    if (!raw) return undefined;
+    const bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
+    eeproms.set(key, bytes);
+    return bytes;
+  } catch {
+    return undefined;
+  }
 }
 
-function sense(): Omit<WorldSense, 'time'> {
+function saveEeprom(): void {
+  if (!engine) return;
   const s = useStore.getState();
-  const pressed = effectivePressed();
-  return {
-    daylight: daylight(s.hour),
-    temperature: s.temperature,
-    knob: s.knob,
-    motion: visitorMotion(live.visitor),
-    distanceCm: s.carDistance,
-    pressed: (id) => !!pressed[id],
-  };
+  const key = projectKey(s.worldId, s.missionId);
+  const bytes = engine.eeprom();
+  eeproms.set(key, bytes);
+  if (bytes.every((b) => b === 0xff)) return;
+  try {
+    localStorage.setItem(eepromKey(key), btoa(String.fromCharCode(...bytes)));
+  } catch {
+    /* storage full or blocked: keep it in memory only */
+  }
 }
 
-export function sendVisitor(): void {
-  send(live.visitor);
+// ---------- the world ----------
+export function resetWorld(): void {
+  const s = useStore.getState();
+  const world = getWorld(s.worldId);
+  live.sim = world.createSim(currentMission().setup ?? {});
+  live.worldId = world.id;
+  live.snap = live.sim.snapshot();
+  live.sense = live.sim.sense(currentInputs());
 }
 
+export function worldAction(name: string, arg?: number): void {
+  live.sim?.action(name, arg);
+}
+
+function sense(): SenseMap {
+  return live.sim!.sense(currentInputs());
+}
+
+// ---------- the program ----------
 export function startProgram(hex: string): void {
   const s = useStore.getState();
   const world = getWorld(s.worldId);
   const mission = currentMission();
   const project = currentProject();
   const previous = live.states;
-  engine = new SimEngine(hex, missionDevices(world, mission), project.wires, sense);
+  if (engine) saveEeprom();
+  const eeprom = loadEeprom(projectKey(s.worldId, s.missionId));
+  engine = new SimEngine(hex, missionDevices(world, mission), project.wires, sense, eeprom);
   for (const [id, st] of Object.entries(engine.states)) st.angle = previous[id]?.angle ?? 0;
   engine.onSerial = (b) => {
     serialBuffer += String.fromCharCode(b);
@@ -80,6 +111,7 @@ export function startProgram(hex: string): void {
 }
 
 export function stopProgram(): void {
+  saveEeprom();
   engine = null;
   live.running = false;
   const off: Record<string, DeviceState> = {};
@@ -96,44 +128,21 @@ export function serialSend(text: string): void {
 
 function updateWorld(dt: number): void {
   const s = useStore.getState();
-  const patch: Partial<ReturnType<typeof useStore.getState>> = {};
-
-  if (s.autoTime) patch.hour = (s.hour + dt * (24 / 90)) % 24;
-
-  // Car: hold the drive buttons to move it
-  if (live.carDrive !== 0) {
-    let d = s.carDistance - live.carDrive * 70 * dt;
-    if (d <= 3) {
-      d = 3;
-      if (!live.crashed) {
-        live.crashed = true;
-        live.crashedAt = live.time;
-        playBump();
-      }
-    }
-    patch.carDistance = Math.min(400, d);
+  if (s.autoTime) useStore.setState({ hour: (s.hour + dt * (24 / 90)) % 24 });
+  if (!live.sim || live.worldId !== s.worldId) resetWorld();
+  const inputs = currentInputs();
+  live.sim!.step(dt, inputs, live.states);
+  live.sense = live.sim!.sense(inputs);
+  live.snap = live.sim!.snapshot();
+  for (const e of live.sim!.drainEvents?.() ?? []) {
+    if (e === 'bump') playBump();
+    else if (e === 'pop') playPop();
   }
-  if (live.crashed && (patch.carDistance ?? s.carDistance) > 12) live.crashed = false;
-
-  // Visitor walking up to the front door
-  stepVisitor(live.visitor, dt, live.states.door?.angle ?? 0);
-
-  if (Object.keys(patch).length) useStore.setState(patch);
 }
 
 function snapshot(): WorldSnapshot {
   const s = useStore.getState();
-  return {
-    hour: s.hour,
-    daylight: daylight(s.hour),
-    temperature: s.temperature,
-    knob: s.knob,
-    carDistance: s.carDistance,
-    crashed: live.crashed,
-    visitor: live.visitor.phase,
-    pressed: effectivePressed(),
-    serial: s.serial,
-  };
+  return { ...currentInputs(), daylight: daylight(s.hour), serial: s.serial, ...live.snap };
 }
 
 function checkMission(dt: number): void {
@@ -162,6 +171,7 @@ function updateSounds(): void {
     if (!st) continue;
     if (d.type === 'buzzer') setTone(d.id, st.freq, 0.04);
     if (d.type === 'servo') setTone(`${d.id}:motor`, st.on ? 150 : 0, 0.012, 'sawtooth');
+    if (d.type === 'motor') setTone(`${d.id}:motor`, st.speed ? 90 + Math.abs(st.speed) * 80 : 0, 0.01, 'sawtooth');
     if (d.type === 'relay') {
       if (relayMemory.get(d.id) !== st.on) {
         if (relayMemory.has(d.id)) click();
@@ -196,6 +206,7 @@ function frame(dt: number): void {
       speedAcc = { wanted: 0, ran: 0, t: 0 };
     }
     live.states = engine.states;
+    live.engineTime = engine.time;
     live.boardL = engine.pin(13).duty;
     if (serialBuffer) {
       useStore.getState().appendSerial(serialBuffer);
@@ -211,6 +222,11 @@ let started = false;
 export function startLoop(): void {
   if (started) return;
   started = true;
+  resetWorld();
+  // A new mission (or the same one opened again) gets a fresh world.
+  useStore.subscribe((s, prev) => {
+    if (s.epoch !== prev.epoch || s.worldId !== prev.worldId) resetWorld();
+  });
   let last = performance.now();
   const tick = (now: number) => {
     const dt = Math.min(0.1, (now - last) / 1000);

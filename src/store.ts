@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { Wire } from './sim/circuit';
 import { getWorld } from './worlds';
-import type { Mission, WorldDef } from './worlds/types';
+import { defaultInputs, type Mission, type WorldDef, type WorldInputs } from './worlds/types';
 import type { FriendlyDiagnostic } from './ui/friendly';
 
 export interface Project {
@@ -44,18 +44,23 @@ interface State {
   selectedWire: string | null;
   hoverPin: string | null;
 
-  // world controls
+  // world controls (see WorldInputs)
   hour: number;
   autoTime: boolean;
   temperature: number;
-  knob: number;
-  carDistance: number;
+  humidity: number;
+  values: Record<string, number>;
   pressed: Record<string, boolean>;
+  keys: Record<string, string | null>;
+  /** Bumped whenever a mission is (re)opened, so the world simulation restarts */
+  epoch: number;
 
   set: (partial: Partial<State>) => void;
   setCode: (code: string) => void;
   setWires: (wires: Wire[]) => void;
   setPressed: (id: string, value: boolean) => void;
+  setValue: (key: string, value: number) => void;
+  setKey: (deviceId: string, key: string | null) => void;
   openMission: (missionId: string) => void;
   appendSerial: (text: string) => void;
 }
@@ -92,12 +97,9 @@ export const useStore = create<State>()(
       selectedWire: null,
       hoverPin: null,
 
-      hour: 12,
+      ...defaultInputs(),
       autoTime: false,
-      temperature: 24,
-      knob: 0.5,
-      carDistance: 350,
-      pressed: {},
+      epoch: 0,
 
       set: (partial) => set(partial),
       setCode: (code) => {
@@ -113,10 +115,24 @@ export const useStore = create<State>()(
         set({ projects: { ...projects, [key]: { ...current, wires } } });
       },
       setPressed: (id, value) => set({ pressed: { ...get().pressed, [id]: value } }),
+      setValue: (key, value) => {
+        if (key === 'temperature' || key === 'humidity') set({ [key]: value });
+        else set({ values: { ...get().values, [key]: value } });
+      },
+      setKey: (deviceId, key) => set({ keys: { ...get().keys, [deviceId]: key } }),
       openMission: (missionId) => {
         const world = getWorld(get().worldId);
         const mission = world.missions.find((m) => m.id === missionId) ?? world.missions[0];
+        const { values, ...setup } = mission.setup ?? {};
+        const base = defaultInputs();
         set({
+          hour: typeof setup.hour === 'number' ? setup.hour : base.hour,
+          temperature: typeof setup.temperature === 'number' ? setup.temperature : base.temperature,
+          humidity: typeof setup.humidity === 'number' ? setup.humidity : base.humidity,
+          values: { ...(values ?? {}) },
+          keys: {},
+          autoTime: false,
+          epoch: get().epoch + 1,
           missionId: mission.id,
           objectivesDone: mission.objectives.map(() => false),
           showMissions: false,
@@ -130,7 +146,6 @@ export const useStore = create<State>()(
           celebrate: false,
           pressed: {},
           bottomTab: 'helper',
-          ...(mission.setup ?? {}),
         });
       },
       appendSerial: (text) => {
@@ -186,6 +201,12 @@ export function currentMission(): Mission {
   const s = useStore.getState();
   const world = getWorld(s.worldId);
   return world.missions.find((m) => m.id === s.missionId) ?? world.missions[0];
+}
+
+/** The player's inputs as the world simulation sees them. */
+export function currentInputs(): WorldInputs {
+  const s = useStore.getState();
+  return { hour: s.hour, temperature: s.temperature, humidity: s.humidity, values: s.values, pressed: s.pressed, keys: s.keys };
 }
 
 export function missionDevices(world: WorldDef, mission: Mission) {

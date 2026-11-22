@@ -212,7 +212,7 @@ void loop() {
     ],
     devices: ['dimmer', 'porchLight'],
     controls: ['knob', 'time'],
-    setup: { hour: 21, knob: 0.5 },
+    setup: { hour: 21, values: { dimmer: 0.5 } },
     starterCode: `// Mission 4: Make a dimmer switch!
 const int KNOB_PIN = A1;
 const int LIGHT_PIN = 9;    // the ~ next to 9 means this pin can dim (PWM)
@@ -255,9 +255,9 @@ void loop() {
       'map(value, 0, 1023, 0, 255) squeezes the knob number into the brightness range.',
     ],
     objectives: [
-      { text: 'Knob in the middle: light is half bright', check: (c) => c.held(Math.abs(c.world.knob - 0.5) < 0.15 && Math.abs(c.dev('porchLight').brightness - c.world.knob) < 0.12, 1) },
-      { text: 'Knob all the way up: full brightness', check: (c) => c.held(c.world.knob > 0.9 && c.dev('porchLight').brightness > 0.85, 1) },
-      { text: 'Knob all the way down: light off', check: (c) => c.held(c.world.knob < 0.05 && c.dev('porchLight').brightness < 0.06, 1) },
+      { text: 'Knob in the middle: light is half bright', check: (c) => c.held(Math.abs(c.world.values.dimmer - 0.5) < 0.15 && Math.abs(c.dev('porchLight').brightness - c.world.values.dimmer) < 0.12, 1) },
+      { text: 'Knob all the way up: full brightness', check: (c) => c.held(c.world.values.dimmer > 0.9 && c.dev('porchLight').brightness > 0.85, 1) },
+      { text: 'Knob all the way down: light off', check: (c) => c.held(c.world.values.dimmer < 0.05 && c.dev('porchLight').brightness < 0.06, 1) },
     ],
   },
   {

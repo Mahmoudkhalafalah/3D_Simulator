@@ -4,12 +4,16 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { Html, RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
-import { live, DOOR_X } from '../../sim/session';
+import { live } from '../../sim/session';
+import { DOOR_X, SmartHomeSim } from './actors';
 import { emptyState } from '../../devices/logic';
 import { useStore } from '../../store';
 import { canvasTexture, displayTexture } from '../../bench/textures';
 
 const st = (id: string) => live.states[id] ?? emptyState();
+const FALLBACK = new SmartHomeSim();
+/** The running Smart House simulation (visitor, car). */
+const home = () => (live.sim instanceof SmartHomeSim ? live.sim : FALLBACK);
 const WALL_H = 2.6;
 const CUT_H = 1.0;
 const T = 0.15;
@@ -177,7 +181,7 @@ function Doorbell() {
   const btn = useRef<THREE.Mesh>(null);
   const set = useStore((s) => s.setPressed);
   useFrame(() => {
-    const pressed = useStore.getState().pressed.doorbell || live.visitor.ringing;
+    const pressed = !!live.sense?.pressed('doorbell');
     if (btn.current) btn.current.position.z = pressed ? 0.02 : 0.05;
   });
   const down = (e: ThreeEvent<PointerEvent>) => {
@@ -369,7 +373,7 @@ function Thermometer() {
 function DimmerKnob() {
   const knob = useRef<THREE.Mesh>(null);
   useFrame(() => {
-    if (knob.current) knob.current.rotation.z = THREE.MathUtils.degToRad(135 - 270 * useStore.getState().knob);
+    if (knob.current) knob.current.rotation.z = THREE.MathUtils.degToRad(135 - 270 * (useStore.getState().values.dimmer ?? 0.5));
   });
   return (
     <group position={[-2.05, 1.15, -2.92]}>
@@ -417,7 +421,7 @@ function ParkingSensor() {
   const wave = useRef<THREE.Mesh>(null);
   useFrame(() => {
     if (!wave.current) return;
-    const t = (live.time - st('parking').ping) / 0.4;
+    const t = (live.engineTime - st('parking').ping) / 0.4;
     wave.current.visible = live.running && t >= 0 && t < 1;
     wave.current.position.z = 0.1 + t * 2.5;
     wave.current.scale.setScalar(0.4 + t * 2);
@@ -459,15 +463,16 @@ function Car() {
   const lastZ = useRef(0);
   useFrame(() => {
     if (!group.current) return;
-    const d = useStore.getState().carDistance;
+    const sim = home();
+    const d = sim.carDistance;
     const z = -2.92 + d / 100 + 2.05;
     const moved = z - lastZ.current;
     lastZ.current = z;
     group.current.position.z = z;
-    const shake = live.time - live.crashedAt < 0.4 ? Math.sin(live.time * 90) * 0.04 : 0;
+    const shake = sim.time - sim.crashedAt < 0.4 ? Math.sin(sim.time * 90) * 0.04 : 0;
     group.current.position.x = 3.1 + shake;
     for (const w of wheels.current) if (w) w.rotation.x += moved / 0.34;
-    if (bang.current) bang.current.style.display = live.time - live.crashedAt < 1.2 ? 'block' : 'none';
+    if (bang.current) bang.current.style.display = sim.time - sim.crashedAt < 1.2 ? 'block' : 'none';
   });
   const wheelPos: V3[] = [
     [-0.82, 0.34, -1.3],
@@ -516,7 +521,7 @@ function Visitor() {
   const legR = useRef<THREE.Mesh>(null);
   const armR = useRef<THREE.Group>(null);
   useFrame(() => {
-    const v = live.visitor;
+    const v = home().visitor;
     if (!group.current) return;
     group.current.visible = v.phase !== 'away';
     group.current.position.set(v.x, 0, v.z);

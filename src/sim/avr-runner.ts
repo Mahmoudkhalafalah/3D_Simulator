@@ -2,10 +2,14 @@
 // measures what happens on every pin (level, PWM duty, pulse width, frequency).
 import {
   AVRADC,
+  AVREEPROM,
   AVRIOPort,
+  AVRTWI,
   AVRTimer,
   AVRUSART,
   CPU,
+  EEPROMMemoryBackend,
+  NoopTWIEventHandler,
   PinState,
   adcConfig,
   avrInstruction,
@@ -15,6 +19,7 @@ import {
   timer0Config,
   timer1Config,
   timer2Config,
+  twiConfig,
   usart0Config,
 } from 'avr8js';
 import { loadHex } from './hex';
@@ -90,20 +95,28 @@ class PinTracker {
 }
 
 export type EdgeListener = (level: 0 | 1, cycles: number) => void;
+export type ChangeListener = (mode: PinMode, level: 0 | 1, cycles: number) => void;
+
+export const EEPROM_BYTES = 1024;
 
 export class AVRRunner {
   readonly cpu: CPU;
   readonly ports: Record<PortName, AVRIOPort>;
   readonly adc: AVRADC;
   readonly usart: AVRUSART;
+  /** I2C (Wire library). The engine plugs in an event handler that talks to I2C modules. */
+  readonly twi: AVRTWI;
+  /** EEPROM contents: survive restarts, like on a real board */
+  readonly eeprom: EEPROMMemoryBackend;
   readonly pins: PinTracker[] = UNO_IO.map(() => new PinTracker());
   onSerialByte: ((byte: number) => void) | null = null;
   /** Called whenever an IO pin changes mode (e.g. pinMode INPUT_PULLUP) so inputs can be re-resolved. */
   onModeChange: ((io: number) => void) | null = null;
   private edgeListeners = new Map<number, Set<EdgeListener>>();
+  private changeListeners = new Map<number, Set<ChangeListener>>();
   private rxQueue: number[] = [];
 
-  constructor(hex: string) {
+  constructor(hex: string, eeprom?: Uint8Array) {
     const flash = new Uint8Array(FLASH_BYTES);
     loadHex(hex, flash);
     this.cpu = new CPU(new Uint16Array(flash.buffer));
@@ -119,6 +132,11 @@ export class AVRRunner {
     this.usart = new AVRUSART(this.cpu, usart0Config, CLOCK_HZ);
     this.usart.onByteTransmit = (b) => this.onSerialByte?.(b);
     this.usart.onRxComplete = () => this.pumpRx();
+    this.twi = new AVRTWI(this.cpu, twiConfig, CLOCK_HZ);
+    this.twi.eventHandler = new NoopTWIEventHandler(this.twi);
+    this.eeprom = new EEPROMMemoryBackend(EEPROM_BYTES);
+    if (eeprom) this.eeprom.memory.set(eeprom.subarray(0, EEPROM_BYTES));
+    new AVREEPROM(this.cpu, this.eeprom);
 
     for (const name of ['B', 'C', 'D'] as PortName[]) {
       const port = this.ports[name];
@@ -131,8 +149,13 @@ export class AVRRunner {
           const level: 0 | 1 = st === PinState.High ? 1 : 0;
           const tracker = this.pins[p.io];
           const oldMode = tracker.mode;
+          const oldLevel = tracker.level;
           const edge = tracker.set(mode, level, now);
           if (mode !== oldMode) this.onModeChange?.(p.io);
+          if (mode !== oldMode || level !== oldLevel) {
+            const cs = this.changeListeners.get(p.io);
+            if (cs) for (const l of cs) l(mode, level, now);
+          }
           if (edge !== 0) {
             const ls = this.edgeListeners.get(p.io);
             if (ls) for (const l of ls) l(edge > 0 ? 1 : 0, now);
@@ -189,6 +212,14 @@ export class AVRRunner {
   onEdge(io: number, listener: EdgeListener): () => void {
     let set = this.edgeListeners.get(io);
     if (!set) this.edgeListeners.set(io, (set = new Set()));
+    set.add(listener);
+    return () => set!.delete(listener);
+  }
+
+  /** Listen for any change of mode or level on a pin (bidirectional protocols like DHT11, keypads). */
+  onChange(io: number, listener: ChangeListener): () => void {
+    let set = this.changeListeners.get(io);
+    if (!set) this.changeListeners.set(io, (set = new Set()));
     set.add(listener);
     return () => set!.delete(listener);
   }

@@ -10,7 +10,8 @@ import { cliPath, arduinoEnv, toolsDir } from '../server/arduino-paths.mjs';
 
 
 
-const LIBRARIES = ['Servo'];
+// Libraries used by the missions (the Arduino course uses the same ones).
+const LIBRARIES = ['Servo', 'LiquidCrystal', 'LiquidCrystal I2C', 'DHT sensor library', 'Keypad'];
 
 function assetName() {
   const arch = process.arch === 'arm64' ? 'ARM64' : '64bit';

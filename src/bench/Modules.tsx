@@ -9,6 +9,19 @@ import { MODULE_BASE_Y, MODULE_PIN_PITCH, MODULE_PIN_TOP, PCB_T, type ModulePlac
 import { canvasTexture, cached } from './textures';
 import { PinHit } from './PinHit';
 import { emptyState } from '../devices/logic';
+import {
+  DhtBody,
+  IrBody,
+  JoystickBody,
+  KeypadBody,
+  LcdBody,
+  MotorBody,
+  RgbLedBody,
+  SevenSegBody,
+  SoilBody,
+  SoundBody,
+  TrafficLightBody,
+} from './CourseModules';
 
 const TOP = MODULE_BASE_Y + PCB_T;
 const state = (id: string) => live.states[id] ?? emptyState();
@@ -84,7 +97,7 @@ function ButtonBody({ device }: { device: DeviceInstance }) {
   const cap = useRef<THREE.Mesh>(null);
   const setPressed = useStore((s) => s.setPressed);
   useFrame(() => {
-    const pressed = useStore.getState().pressed[device.id] || (device.id === 'doorbell' && live.visitor.ringing);
+    const pressed = !!live.sense?.pressed(device.id);
     if (cap.current) cap.current.position.y = pressed ? 0.42 : 0.55;
   });
   const down = (e: ThreeEvent<PointerEvent>) => {
@@ -317,16 +330,16 @@ function TempBody() {
   );
 }
 
-function PotBody() {
+function PotBody({ device }: { device: DeviceInstance }) {
   const knob = useRef<THREE.Group>(null);
   useFrame(() => {
-    const k = useStore.getState().knob;
+    const k = useStore.getState().values[device.id] ?? 0.5;
     if (knob.current) knob.current.rotation.y = THREE.MathUtils.degToRad(135 - 270 * k);
   });
   const wheel = (e: ThreeEvent<WheelEvent>) => {
     e.stopPropagation();
-    const k = useStore.getState().knob;
-    useStore.setState({ knob: Math.min(1, Math.max(0, k - e.deltaY * 0.0008)) });
+    const k = useStore.getState().values[device.id] ?? 0.5;
+    useStore.getState().setValue(device.id, Math.min(1, Math.max(0, k - e.deltaY * 0.0008)));
   };
   return (
     <group position={[0, TOP, 0.25]}>
@@ -352,7 +365,7 @@ function UltrasonicBody({ device }: { device: DeviceInstance }) {
   const wave = useRef<THREE.Mesh>(null);
   useFrame(() => {
     if (!wave.current) return;
-    const age = live.time - state(device.id).ping;
+    const age = live.engineTime - state(device.id).ping;
     const t = age / 0.35;
     wave.current.visible = live.running && t >= 0 && t < 1;
     wave.current.position.z = 0.6 + t * 3;
@@ -406,9 +419,32 @@ function Body({ device }: { device: DeviceInstance }) {
     case 'temp':
       return <TempBody />;
     case 'pot':
-      return <PotBody />;
+      return <PotBody device={device} />;
     case 'ultrasonic':
       return <UltrasonicBody device={device} />;
+    case 'trafficLight':
+      return <TrafficLightBody device={device} />;
+    case 'rgbLed':
+      return <RgbLedBody device={device} />;
+    case 'sevenSeg':
+      return <SevenSegBody device={device} />;
+    case 'ir':
+      return <IrBody device={device} />;
+    case 'soil':
+      return <SoilBody device={device} />;
+    case 'dht':
+      return <DhtBody device={device} />;
+    case 'lcd':
+    case 'lcdI2c':
+      return <LcdBody device={device} />;
+    case 'motor':
+      return <MotorBody device={device} />;
+    case 'keypad':
+      return <KeypadBody device={device} />;
+    case 'joystick':
+      return <JoystickBody device={device} />;
+    case 'sound':
+      return <SoundBody device={device} />;
   }
 }
 

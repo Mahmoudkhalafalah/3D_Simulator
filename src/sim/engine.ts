@@ -1,19 +1,24 @@
 // The simulation engine: one Arduino, a set of modules and the wires between them.
 // Each frame it lets modules sense the world, feeds their signals to the chip,
 // runs the chip for the elapsed time, and measures what the chip did.
+import type { TWIEventHandler } from 'avr8js';
 import { AVRRunner, CLOCK_HZ, type PinReading } from './avr-runner';
 import { analyzeCircuit, type CircuitAnalysis, type NetInfo, type Wire } from './circuit';
-import { createLogic, type DeviceCtx, type DeviceLogic, type DeviceState, type WorldSense } from '../devices/logic';
+import { createLogic, type DeviceCtx, type DeviceLogic, type DeviceState, type SenseMap, type WorldSense } from '../devices/logic';
 import { pinRef, type DeviceInstance } from '../devices/specs';
 import { UNO_IO } from './board-uno';
 
 const HIGH: PinReading = { mode: 'out', level: 1, duty: 1, pulseUs: 0, freqHz: 0 };
 const LOW: PinReading = { mode: 'out', level: 0, duty: 0, pulseUs: 0, freqHz: 0 };
+const SDA_IO = 18; // A4
+const SCL_IO = 19; // A5
 
-interface EdgeSub {
+interface PinSub {
   deviceId: string;
   pin: string;
-  cb: (level: 0 | 1, cycles: number) => void;
+  kind: 'edge' | 'change';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  cb: (...args: any[]) => void;
   unsubs: (() => void)[];
 }
 
@@ -25,18 +30,22 @@ export class SimEngine {
   private logic = new Map<string, DeviceLogic>();
   private ctxs = new Map<string, DeviceCtx>();
   private drives = new Map<string, number>();
-  private edgeSubs: EdgeSub[] = [];
+  private subs: PinSub[] = [];
+  private senseNow: WorldSense;
 
   constructor(
     hex: string,
     private devices: DeviceInstance[],
     wires: Wire[],
-    private sense: () => Omit<WorldSense, 'time'>,
+    private sense: () => SenseMap,
+    eeprom?: Uint8Array,
   ) {
-    this.runner = new AVRRunner(hex);
+    this.runner = new AVRRunner(hex, eeprom);
     this.runner.onSerialByte = (b) => this.onSerial?.(b);
     this.runner.onModeChange = (io) => this.resolveIo(io);
+    this.runner.twi.eventHandler = this.i2cBus();
     this.analysis = analyzeCircuit(devices, wires);
+    this.senseNow = { ...sense(), time: 0 };
 
     for (const d of devices) {
       const logic = createLogic(d.type);
@@ -50,7 +59,7 @@ export class SimEngine {
   /** Wires changed while running: rebuild nets but keep the program running (like moving a jumper). */
   rewire(wires: Wire[]): void {
     this.analysis = analyzeCircuit(this.devices, wires);
-    for (const sub of this.edgeSubs) this.subscribe(sub);
+    for (const sub of this.subs) this.subscribe(sub);
     this.resolveAll();
   }
 
@@ -63,6 +72,7 @@ export class SimEngine {
   /** Advance by dt seconds of simulated time. */
   step(dt: number, maxCycles = Infinity): number {
     this.time += dt;
+    this.senseNow = { ...this.sense(), time: this.time };
     for (const [id, l] of this.logic) l.update(this.ctxs.get(id)!, dt);
     this.resolveAll();
     const cycles = Math.min(Math.round(dt * CLOCK_HZ), maxCycles);
@@ -75,6 +85,11 @@ export class SimEngine {
     return this.runner.reading(io);
   }
 
+  /** EEPROM contents, to keep them for the next run */
+  eeprom(): Uint8Array {
+    return this.runner.eeprom.memory.slice();
+  }
+
   private net(ref: string): NetInfo | undefined {
     return this.analysis.netOf.get(ref);
   }
@@ -82,15 +97,6 @@ export class SimEngine {
   private makeCtx(d: DeviceInstance): DeviceCtx {
     const engine = this;
     const ref = (pin: string) => pinRef(d.id, pin);
-    const world: WorldSense = {
-      daylight: 0,
-      temperature: 0,
-      knob: 0,
-      motion: false,
-      distanceCm: 0,
-      pressed: () => false,
-      time: 0,
-    };
     return {
       id: d.id,
       get powered() {
@@ -100,9 +106,7 @@ export class SimEngine {
         return engine.analysis.devices[d.id]?.supply ?? 0;
       },
       get world() {
-        Object.assign(world, engine.sense());
-        world.time = engine.time;
-        return world;
+        return engine.senseNow;
       },
       read(pin) {
         const net = engine.net(ref(pin));
@@ -114,6 +118,16 @@ export class SimEngine {
         }
         return null;
       },
+      level(pin) {
+        const net = engine.net(ref(pin));
+        if (!net) return null;
+        if (net.hasGnd) return 0;
+        if (net.has5V || net.has3V3) return 1;
+        for (const io of net.ios) {
+          if (engine.runner.mode(io) === 'out') return engine.runner.level(io);
+        }
+        return null;
+      },
       drive(pin, volts) {
         const r = ref(pin);
         if (volts === null) engine.drives.delete(r);
@@ -122,8 +136,13 @@ export class SimEngine {
         if (net) engine.resolveNet(net);
       },
       onEdge(pin, cb) {
-        const sub: EdgeSub = { deviceId: d.id, pin, cb, unsubs: [] };
-        engine.edgeSubs.push(sub);
+        const sub: PinSub = { deviceId: d.id, pin, kind: 'edge', cb, unsubs: [] };
+        engine.subs.push(sub);
+        engine.subscribe(sub);
+      },
+      onChange(pin, cb) {
+        const sub: PinSub = { deviceId: d.id, pin, kind: 'change', cb, unsubs: [] };
+        engine.subs.push(sub);
         engine.subscribe(sub);
       },
       schedule(cb, delaySeconds) {
@@ -132,12 +151,38 @@ export class SimEngine {
     };
   }
 
-  private subscribe(sub: EdgeSub): void {
+  private subscribe(sub: PinSub): void {
     sub.unsubs.forEach((u) => u());
     sub.unsubs = [];
     const net = this.net(pinRef(sub.deviceId, sub.pin));
     if (!net) return;
-    for (const io of net.ios) sub.unsubs.push(this.runner.onEdge(io, sub.cb));
+    for (const io of net.ios) {
+      sub.unsubs.push(sub.kind === 'edge' ? this.runner.onEdge(io, sub.cb) : this.runner.onChange(io, sub.cb));
+    }
+  }
+
+  /** The Wire library talks to whichever powered module sits on A4 (SDA) and A5 (SCL). */
+  private i2cBus(): TWIEventHandler {
+    const twi = this.runner.twi;
+    let target: DeviceLogic['i2c'] | null = null;
+    const onBus = (id: string, pin: string, io: number) => !!this.net(pinRef(id, pin))?.ios.includes(io);
+    return {
+      start: () => twi.completeStart(),
+      stop: () => {
+        target = null;
+        twi.completeStop();
+      },
+      connectToSlave: (addr) => {
+        target = null;
+        for (const d of this.devices) {
+          const t = this.logic.get(d.id)?.i2c;
+          if (t && t.address === addr && this.analysis.devices[d.id]?.powerOk && onBus(d.id, 'SDA', SDA_IO) && onBus(d.id, 'SCL', SCL_IO)) target = t;
+        }
+        twi.completeConnect(!!target);
+      },
+      writeByte: (value) => twi.completeWrite(target ? target.write(value) : false),
+      readByte: () => twi.completeRead(target?.read?.() ?? 0xff),
+    };
   }
 
   private resolveIo(io: number): void {

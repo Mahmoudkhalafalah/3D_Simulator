@@ -4,10 +4,15 @@
 import { compileSketch, toolchainReady } from '../server/compiler.mjs';
 import { SimEngine } from '../src/sim/engine';
 import { analyzeCircuit, type Wire } from '../src/sim/circuit';
-import { SMART_HOME } from '../src/worlds/smartHome';
+import { WORLDS } from '../src/worlds';
+import { SCENARIOS } from '../src/worlds/scenarios';
 import { MissionChecker } from '../src/worlds/checker';
-import { daylight, newVisitor, sendVisitor, stepVisitor, visitorMotion, type VisitorState } from '../src/worlds/smartHome/actors';
-import type { Mission, WorldSnapshot } from '../src/worlds/types';
+import { daylight } from '../src/worlds/sense';
+import { SandboxSim } from '../src/worlds/sandbox';
+import type { Scenario } from '../src/worlds/scenario';
+import { defaultInputs, type Mission, type WorldDef, type WorldInputs, type WorldSim, type WorldSnapshot } from '../src/worlds/types';
+import type { DeviceInstance } from '../src/devices/specs';
+import type { DeviceState } from '../src/devices/logic';
 import { explain } from '../src/ui/friendly';
 
 let failures = 0;
@@ -18,146 +23,245 @@ function check(name: string, ok: boolean, detail = '') {
   console.log(`${ok ? '  ✔' : '  ✘'} ${name}${detail ? `  (${detail})` : ''}`);
 }
 
-interface World {
-  hour: number;
-  temperature: number;
-  knob: number;
-  carDistance: number;
-  pressed: Record<string, boolean>;
+const toWires = (pairs: [string, string][]): Wire[] => pairs.map(([a, b], i) => ({ id: `w${i}`, a, b, color: '#000' }));
+
+interface RunResult {
+  compiled: boolean;
+  output: string;
+  serial: string;
+  done: boolean[];
+  states: Record<string, DeviceState>;
+  /** Device states sampled every simulated second */
+  history: Record<string, DeviceState>[];
 }
 
-type Script = (t: number, w: World, v: VisitorState) => void;
-
-const wiresOf = (m: Mission): Wire[] => m.solutionWires.map(([a, b], i) => ({ id: `w${i}`, a, b, color: '#000' }));
-
-async function runMission(mission: Mission, code: string, duration: number, script: Script) {
-  const res = await compileSketch(code, 'uno');
-  if (!res.ok || !res.hex) {
-    return { compiled: false, done: [] as boolean[], serial: '', output: res.output };
-  }
-  const devices = SMART_HOME.devices.filter((d) => mission.devices.includes(d.id));
-  const w: World = { hour: 12, temperature: 24, knob: 0.5, carDistance: 350, pressed: {}, ...(mission.setup ?? {}) };
-  const visitor = newVisitor();
-  const engine = new SimEngine(hex(res.hex), devices, wiresOf(mission), () => ({
-    daylight: daylight(w.hour),
-    temperature: w.temperature,
-    knob: w.knob,
-    motion: visitorMotion(visitor),
-    distanceCm: w.carDistance,
-    pressed: (id) => !!(w.pressed[id] || (id === 'doorbell' && visitor.ringing)),
-  }));
+/** Run a sketch with some modules in a world for a while, playing a scenario. */
+async function runSketch(opts: {
+  code: string;
+  devices: DeviceInstance[];
+  wires: [string, string][];
+  scenario: Scenario;
+  sim?: WorldSim;
+  inputs?: WorldInputs;
+  mission?: Mission;
+}): Promise<RunResult> {
+  const res = await compileSketch(opts.code, 'uno');
+  const empty: RunResult = { compiled: false, output: res.output, serial: '', done: [], states: {}, history: [] };
+  if (!res.ok || !res.hex) return empty;
+  const inputs = opts.inputs ?? defaultInputs();
+  const sim = opts.sim ?? new SandboxSim();
+  const { scenario, mission } = opts;
   let serial = '';
-  engine.onSerial = (b) => (serial += String.fromCharCode(b));
+  const boot = (eeprom?: Uint8Array) => {
+    const e = new SimEngine(res.hex!, opts.devices, toWires(opts.wires), () => sim.sense(inputs), eeprom);
+    e.onSerial = (b) => (serial += String.fromCharCode(b));
+    return e;
+  };
+  let engine = boot();
   const checker = new MissionChecker();
-  const done = mission.objectives.map(() => false);
+  const done = mission ? mission.objectives.map(() => false) : [];
+  const typed = [...(scenario.serial ?? [])];
+  const cycles = [...(scenario.powerCycles ?? [])];
+  const history: Record<string, DeviceState>[] = [];
   const dt = 1 / 60;
-  for (let t = 0; t < duration; t += dt) {
-    script(t, w, visitor);
-    stepVisitor(visitor, dt, engine.states.door?.angle ?? 0);
+  let nextSample = 1;
+  for (let t = 0; t < scenario.duration; t += dt) {
+    scenario.script?.(t, inputs, sim);
+    while (typed.length && typed[0][0] <= t) engine.runner.serialWrite(typed.shift()![1]);
+    if (cycles.length && cycles[0] <= t) {
+      cycles.shift();
+      engine = boot(engine.eeprom());
+    }
+    sim.step(dt, inputs, engine.states);
     engine.step(dt);
-    const world: WorldSnapshot = {
-      hour: w.hour,
-      daylight: daylight(w.hour),
-      temperature: w.temperature,
-      knob: w.knob,
-      carDistance: w.carDistance,
-      crashed: false,
-      visitor: visitor.phase,
-      pressed: { ...w.pressed, ...(visitor.ringing ? { doorbell: true } : {}) },
-      serial,
-    };
-    const idx = checker.step(mission, done, engine.states, world, dt);
-    if (idx >= 0) done[idx] = true;
+    if (t >= nextSample) {
+      nextSample += 1;
+      history.push(JSON.parse(JSON.stringify(engine.states)));
+    }
+    if (mission) {
+      const world: WorldSnapshot = { ...inputs, daylight: daylight(inputs.hour), serial, ...sim.snapshot() };
+      const idx = checker.step(mission, done, engine.states, world, dt);
+      if (idx >= 0) done[idx] = true;
+    }
   }
-  return { compiled: true, done, serial, output: res.output };
+  return { compiled: true, output: res.output, serial, done, states: engine.states, history };
 }
-const hex = (h: string) => h;
 
-const between = (t: number, a: number, b: number) => t >= a && t < b;
+function missionInputs(mission: Mission): WorldInputs {
+  const { values, ...setup } = mission.setup ?? {};
+  const base = defaultInputs();
+  return {
+    ...base,
+    hour: typeof setup.hour === 'number' ? setup.hour : base.hour,
+    temperature: typeof setup.temperature === 'number' ? setup.temperature : base.temperature,
+    humidity: typeof setup.humidity === 'number' ? setup.humidity : base.humidity,
+    values: { ...(values ?? {}) },
+  };
+}
 
-const SCENARIOS: Record<string, { duration: number; script: Script }> = {
-  blink: { duration: 7, script: () => {} },
-  doorbell: {
-    duration: 6,
-    script: (t, w) => {
-      w.pressed.doorbell = between(t, 1, 1.3);
-    },
-  },
-  nightlight: {
-    duration: 6,
-    script: (t, w) => {
-      w.hour = t < 3 ? 22 : 12;
-    },
-  },
-  dimmer: {
-    duration: 6,
-    script: (t, w) => {
-      w.knob = t < 2 ? 0.5 : t < 4 ? 1 : 0;
-    },
-  },
-  welcome: {
-    duration: 16,
-    script: (t, _w, v) => {
-      if (between(t, 0.5, 0.52)) sendVisitor(v);
-    },
-  },
-  fan: {
-    duration: 8,
-    script: (t, w) => {
-      w.temperature = t < 1 ? 22 : t < 4 ? 31 : 23;
-    },
-  },
-  lampswitch: {
-    duration: 6,
-    script: (t, w) => {
-      w.pressed.lightSwitch = between(t, 1, 1.25) || between(t, 3.2, 3.45);
-    },
-  },
-  parking: {
-    duration: 10,
-    script: (t, w) => {
-      if (t < 2) w.carDistance = 350 - t * 135; // drive in to 80 cm
-      else if (t < 3) w.carDistance = 80;
-      else if (t < 6) w.carDistance = 260; // back up, far away
-      else w.carDistance = 20; // park
-    },
-  },
-};
+function runMission(world: WorldDef, mission: Mission, code: string, scenario: Scenario) {
+  return runSketch({
+    code,
+    devices: world.devices.filter((d) => mission.devices.includes(d.id)),
+    wires: mission.solutionWires,
+    scenario,
+    sim: world.createSim(mission.setup ?? {}),
+    inputs: missionInputs(mission),
+    mission,
+  });
+}
 
-async function missionTests() {
-  for (const mission of SMART_HOME.missions) {
+async function missionTests(world: WorldDef) {
+  console.log(`\n========== ${world.emoji}  ${world.title} ==========`);
+  for (const mission of world.missions) {
     console.log(`\n${mission.emoji}  ${mission.title}`);
     const starter = await compileSketch(mission.starterCode, 'uno');
     check('starter code compiles', starter.ok, starter.ok ? '' : starter.output.split('\n').find((l) => l.includes('error')) ?? '');
 
-    const analysis = analyzeCircuit(SMART_HOME.devices.filter((d) => mission.devices.includes(d.id)), wiresOf(mission));
+    const analysis = analyzeCircuit(world.devices.filter((d) => mission.devices.includes(d.id)), toWires(mission.solutionWires));
     const problems = analysis.issues.filter((i) => i.level !== 'info');
     if (mission.solutionWires.length && mission.objectives.length) {
       check('solution wiring has no problems', problems.length === 0, problems.map((p) => p.text).join(' | '));
     }
+    const unknown = mission.controls.filter((c) => !world.controls[c]);
+    check('mission controls exist', unknown.length === 0, unknown.join(', '));
 
-    const scenario = SCENARIOS[mission.id];
+    const scenario = SCENARIOS[world.id]?.[mission.id];
     if (!scenario) {
       const sol = await compileSketch(mission.solutionCode, 'uno');
-      check('example code compiles', sol.ok);
+      check('example code compiles', sol.ok, sol.ok ? '' : sol.output.split('\n').find((l) => l.includes('error')) ?? '');
       continue;
     }
     const t0 = Date.now();
-    const sol = await runMission(mission, mission.solutionCode, scenario.duration, scenario.script);
-    check('solution compiles', sol.compiled, sol.compiled ? '' : sol.output);
+    const sol = await runMission(world, mission, mission.solutionCode, scenario);
+    check('solution compiles', sol.compiled, sol.compiled ? '' : sol.output.split('\n').find((l) => l.includes('error')) ?? sol.output);
     mission.objectives.forEach((o, i) => check(`solution: ${o.text}`, sol.done[i]));
     const sample = sol.serial.trim().split('\n').slice(-2).join(' / ');
     if (sample) console.log(`     serial: ${sample.slice(0, 90)}`);
     console.log(`     simulated ${scenario.duration}s in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
-    const st = await runMission(mission, mission.starterCode, scenario.duration, scenario.script);
+    const st = await runMission(world, mission, mission.starterCode, scenario);
     check('starter code does not already finish the mission', !st.done.every(Boolean));
   }
 }
 
+// ---------------------------------------------------------------------------------
+// Hardware tests for the modules with their own protocols
+
+const dev = (id: string, type: DeviceInstance['type']): DeviceInstance => ({ id, type, name: id, emoji: '' });
+const POWER = (id: string): [string, string][] => [
+  [`${id}:GND`, 'uno:GND1'],
+  [`${id}:VCC`, 'uno:5V'],
+];
+
+async function hardwareTests() {
+  console.log('\n🔧 Modules with their own protocols');
+
+  // LCD 16x2 on D12/D11/D5-D2 with the LiquidCrystal library
+  let r = await runSketch({
+    code: `#include <LiquidCrystal.h>
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+void setup() { lcd.begin(16, 2); lcd.print("Hello, world!"); lcd.setCursor(0, 1); lcd.print(42); }
+void loop() {}`,
+    devices: [dev('lcd', 'lcd')],
+    wires: [...POWER('lcd'), ['lcd:RS', 'uno:D12'], ['lcd:E', 'uno:D11'], ['lcd:D4', 'uno:D5'], ['lcd:D5', 'uno:D4'], ['lcd:D6', 'uno:D3'], ['lcd:D7', 'uno:D2']],
+    scenario: { duration: 1 },
+  });
+  check('LCD (LiquidCrystal) shows text', r.states.lcd?.lines[0].startsWith('Hello, world!') && r.states.lcd.lines[1].startsWith('42'), JSON.stringify(r.states.lcd?.lines));
+
+  // LCD with I2C backpack at 0x27 (LiquidCrystal_I2C, Wire on A4/A5)
+  r = await runSketch({
+    code: `#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+void setup() { lcd.init(); lcd.backlight(); lcd.print("I2C works"); lcd.setCursor(3, 1); lcd.print("Temp 25C"); }
+void loop() {}`,
+    devices: [dev('screen', 'lcdI2c')],
+    wires: [...POWER('screen'), ['screen:SDA', 'uno:A4'], ['screen:SCL', 'uno:A5']],
+    scenario: { duration: 2.5 },
+  });
+  check('I2C LCD shows text', r.states.screen?.lines[0].startsWith('I2C works') && r.states.screen.lines[1] === '   Temp 25C     ', JSON.stringify(r.states.screen?.lines));
+  check('I2C LCD backlight is on', !!r.states.screen?.display?.backlight);
+
+  // DHT11 with the Adafruit DHT library
+  const weather = defaultInputs();
+  weather.temperature = 23.5;
+  weather.humidity = 61;
+  r = await runSketch({
+    code: `#include <DHT.h>
+DHT dht(7, DHT11);
+void setup() { Serial.begin(9600); dht.begin(); }
+void loop() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  if (isnan(h) || isnan(t)) Serial.println("fail");
+  else { Serial.print("T="); Serial.print(t); Serial.print(" H="); Serial.println(h); }
+  delay(2000);
+}`,
+    devices: [dev('dht', 'dht')],
+    wires: [['dht:GND', 'uno:GND1'], ['dht:VCC', 'uno:5V'], ['dht:DATA', 'uno:D7']],
+    scenario: { duration: 4.5 },
+    inputs: weather,
+  });
+  check('DHT11 reads temperature and humidity', r.serial.includes('T=23.50 H=61.00') && !r.serial.includes('fail'), r.serial.trim().replace(/\r?\n/g, ' | '));
+
+  // 4x4 keypad with the Keypad library
+  r = await runSketch({
+    code: `#include <Keypad.h>
+char keys[4][4] = {{'1','2','3','A'},{'4','5','6','B'},{'7','8','9','C'},{'*','0','#','D'}};
+byte rowPins[4] = {9, 8, 7, 6};
+byte colPins[4] = {5, 4, 3, 2};
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, 4, 4);
+void setup() { Serial.begin(9600); }
+void loop() { char k = keypad.getKey(); if (k) Serial.print(k); }`,
+    devices: [dev('pad', 'keypad')],
+    wires: [
+      ['pad:R1', 'uno:D9'], ['pad:R2', 'uno:D8'], ['pad:R3', 'uno:D7'], ['pad:R4', 'uno:D6'],
+      ['pad:C1', 'uno:D5'], ['pad:C2', 'uno:D4'], ['pad:C3', 'uno:D3'], ['pad:C4', 'uno:D2'],
+    ],
+    scenario: {
+      duration: 2,
+      script: (t, w) => {
+        w.keys.pad = t > 0.3 && t < 0.5 ? '5' : t > 0.8 && t < 1.0 ? '#' : t > 1.3 && t < 1.5 ? 'D' : null;
+      },
+    },
+  });
+  check('Keypad library reads keys 5, #, D', r.serial === '5#D', JSON.stringify(r.serial));
+
+  // External interrupt on pin 2 works even during a long delay()
+  r = await runSketch({
+    code: `volatile int presses = 0;
+void onPress() { presses++; digitalWrite(13, HIGH); }
+void setup() { Serial.begin(9600); pinMode(13, OUTPUT); pinMode(2, INPUT); attachInterrupt(digitalPinToInterrupt(2), onPress, RISING); }
+void loop() { delay(5000); Serial.println(presses); }`,
+    devices: [dev('btn', 'button'), dev('led', 'led')],
+    wires: [...POWER('btn'), ['btn:SIG', 'uno:D2'], ['led:GND', 'uno:GND2'], ['led:SIG', 'uno:D13']],
+    scenario: {
+      duration: 5.6,
+      script: (t, w) => {
+        w.pressed.btn = (t > 1 && t < 1.2) || (t > 2 && t < 2.2);
+      },
+    },
+  });
+  check('Interrupt reacts during delay()', (r.history[1]?.led?.brightness ?? 0) > 0.5, `LED at 2 s: ${r.history[1]?.led?.brightness}`);
+  check('Interrupt counts 2 presses', r.serial.trim() === '2', JSON.stringify(r.serial));
+
+  // EEPROM keeps a counter across power cycles
+  r = await runSketch({
+    code: `#include <EEPROM.h>
+void setup() { Serial.begin(9600); byte n = EEPROM.read(0); if (n == 255) n = 0; n++; EEPROM.write(0, n); Serial.println(n); }
+void loop() {}`,
+    devices: [],
+    wires: [],
+    scenario: { duration: 1.5, powerCycles: [0.5, 1.0] },
+  });
+  check('EEPROM survives power cycles', r.serial.replace(/\r/g, '').trim() === '1\n2\n3', JSON.stringify(r.serial));
+}
+
 async function circuitTests() {
   console.log('\n🤖 Circuit Helper');
-  const led = SMART_HOME.devices.filter((d) => d.id === 'porchLight' || d.id === 'door');
+  const home = WORLDS[0];
+  const led = home.devices.filter((d) => d.id === 'porchLight' || d.id === 'door');
   const w = (a: string, b: string, i = 0): Wire => ({ id: `t${i}`, a, b, color: '' });
 
   let a = analyzeCircuit(led, [w('uno:5V', 'uno:GND1')]);
@@ -177,6 +281,16 @@ async function circuitTests() {
 
   a = analyzeCircuit(led, [w('porchLight:SIG', 'uno:D1'), w('porchLight:GND', 'uno:GND1', 2)]);
   check('warns about Serial pins 0/1', a.issues.some((i) => i.text.includes('Serial')));
+
+  const screen = [dev('screen', 'lcdI2c')];
+  a = analyzeCircuit(screen, [w('screen:SDA', 'uno:A5', 1), w('screen:SCL', 'uno:A4', 2)]);
+  check('spots swapped SDA/SCL', a.issues.some((i) => i.text.includes('swapped')));
+
+  a = analyzeCircuit([dev('knob', 'pot')], [w('knob:SIG', 'uno:D7', 1)]);
+  check('explains analog sensors need A0-A5', a.issues.some((i) => i.text.includes('analog pin (A0-A5)')));
+
+  a = analyzeCircuit([dev('pad', 'keypad')], [w('pad:R1', 'uno:D9', 1)]);
+  check('keypad needs no power pins', a.devices.pad.powerOk);
 }
 
 async function friendlyTests() {
@@ -191,7 +305,9 @@ async function friendlyTests() {
 async function speedTest() {
   console.log('\n⚡ Speed');
   const res = await compileSketch('void setup(){pinMode(13,OUTPUT);}\nvoid loop(){digitalWrite(13,HIGH);delay(1);digitalWrite(13,LOW);delay(1);}', 'uno');
-  const engine = new SimEngine(res.hex!, [], [], () => ({ daylight: 1, temperature: 20, knob: 0, motion: false, distanceCm: 100, pressed: () => false }));
+  const sim = new SandboxSim();
+  const inputs = defaultInputs();
+  const engine = new SimEngine(res.hex!, [], [], () => sim.sense(inputs));
   const t0 = performance.now();
   for (let i = 0; i < 120; i++) engine.step(1 / 60);
   const ms = performance.now() - t0;
@@ -205,10 +321,14 @@ async function main() {
     console.error('arduino-cli is not installed. Run "npm run setup" first.');
     process.exit(1);
   }
-  await circuitTests();
-  await friendlyTests();
-  await speedTest();
-  await missionTests();
+  const only = process.argv[2];
+  if (!only || only === 'core') {
+    await circuitTests();
+    await friendlyTests();
+    await speedTest();
+    await hardwareTests();
+  }
+  for (const world of WORLDS) if (!only || only === world.id) await missionTests(world);
   console.log(`\n${passes} passed, ${failures} failed`);
   process.exit(failures ? 1 : 0);
 }
