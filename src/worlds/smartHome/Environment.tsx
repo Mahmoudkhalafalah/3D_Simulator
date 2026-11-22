@@ -10,7 +10,7 @@ const NIGHT = new THREE.Color('#0b1430');
 const DUSK = new THREE.Color('#f59e6b');
 const DAY = new THREE.Color('#9fd8ff');
 
-export function SkyAndLights() {
+export function SkyAndLights({ shadowSize = 16, fogNear = 45, fogFar = 110 }: { shadowSize?: number; fogNear?: number; fogFar?: number } = {}) {
   const { scene } = useThree();
   const sun = useRef<THREE.DirectionalLight>(null);
   const moon = useRef<THREE.DirectionalLight>(null);
@@ -54,16 +54,17 @@ export function SkyAndLights() {
 
   return (
     <>
-      <fog attach="fog" args={['#9fd8ff', 45, 110]} />
+      <fog attach="fog" args={['#9fd8ff', fogNear, fogFar]} />
       <hemisphereLight ref={hemi} args={['#ffffff', '#4b5d3a', 1]} />
       <directionalLight
         ref={sun}
         castShadow
         shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-16}
-        shadow-camera-right={16}
-        shadow-camera-top={16}
-        shadow-camera-bottom={-16}
+        shadow-camera-left={-shadowSize}
+        shadow-camera-right={shadowSize}
+        shadow-camera-top={shadowSize}
+        shadow-camera-bottom={-shadowSize}
+        shadow-camera-far={200}
         shadow-bias={-0.0005}
       />
       <directionalLight ref={moon} position={[-10, 20, 10]} color="#9db4ff" />
@@ -80,7 +81,7 @@ export function SkyAndLights() {
   );
 }
 
-function Tree({ position, scale = 1 }: { position: [number, number, number]; scale?: number }) {
+export function Tree({ position, scale = 1 }: { position: [number, number, number]; scale?: number }) {
   return (
     <group position={position} scale={scale}>
       <mesh position={[0, 0.7, 0]} castShadow>
@@ -99,7 +100,7 @@ function Tree({ position, scale = 1 }: { position: [number, number, number]; sca
   );
 }
 
-function Bush({ position }: { position: [number, number, number] }) {
+export function Bush({ position }: { position: [number, number, number] }) {
   return (
     <mesh position={position} castShadow>
       <icosahedronGeometry args={[0.45, 0]} />

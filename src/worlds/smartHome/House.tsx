@@ -2,13 +2,14 @@
 // house is driven by the module on the workbench with the same id.
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
-import { Html, RoundedBox } from '@react-three/drei';
+import { RoundedBox } from '@react-three/drei';
+import { LabelSprite } from '../shared/models';
 import * as THREE from 'three';
 import { live } from '../../sim/session';
 import { DOOR_X, SmartHomeSim } from './actors';
 import { emptyState } from '../../devices/logic';
 import { useStore } from '../../store';
-import { canvasTexture, displayTexture } from '../../bench/textures';
+import { displayTexture } from '../../bench/textures';
 
 const st = (id: string) => live.states[id] ?? emptyState();
 const FALLBACK = new SmartHomeSim();
@@ -229,29 +230,6 @@ function MotionSensor() {
 }
 
 /** A little name tag that always faces the camera. */
-function LabelSprite({ text, position, width = 1.5 }: { text: string; position: V3; width?: number }) {
-  const map = useMemo(
-    () =>
-      canvasTexture(512, 128, (g) => {
-        g.fillStyle = 'rgba(255,255,255,0.95)';
-        g.beginPath();
-        g.roundRect(4, 4, 504, 120, 60);
-        g.fill();
-        g.fillStyle = '#0f172a';
-        g.font = '800 58px Nunito, "Segoe UI Emoji", sans-serif';
-        g.textAlign = 'center';
-        g.textBaseline = 'middle';
-        g.fillText(text, 256, 68);
-      }),
-    [text],
-  );
-  return (
-    <sprite position={position} scale={[width, width / 4, 1]}>
-      <spriteMaterial map={map} depthTest={false} transparent toneMapped={false} />
-    </sprite>
-  );
-}
-
 function RoofLightSensor() {
   return (
     <group position={[-0.4, WALL_H, -3]}>
@@ -459,7 +437,7 @@ function GarageBeeper() {
 function Car() {
   const group = useRef<THREE.Group>(null);
   const wheels = useRef<THREE.Group[]>([]);
-  const bang = useRef<HTMLDivElement>(null);
+  const bang = useRef<THREE.Group>(null);
   const lastZ = useRef(0);
   useFrame(() => {
     if (!group.current) return;
@@ -472,7 +450,7 @@ function Car() {
     const shake = sim.time - sim.crashedAt < 0.4 ? Math.sin(sim.time * 90) * 0.04 : 0;
     group.current.position.x = 3.1 + shake;
     for (const w of wheels.current) if (w) w.rotation.x += moved / 0.34;
-    if (bang.current) bang.current.style.display = sim.time - sim.crashedAt < 1.2 ? 'block' : 'none';
+    if (bang.current) bang.current.visible = sim.time - sim.crashedAt < 1.2;
   });
   const wheelPos: V3[] = [
     [-0.82, 0.34, -1.3],
@@ -506,11 +484,9 @@ function Car() {
           </mesh>
         </group>
       ))}
-      <Html position={[0, 2.0, -1.6]} center zIndexRange={[10, 0]}>
-        <div ref={bang} className="bang" style={{ display: 'none' }}>
-          💥 Bump!
-        </div>
-      </Html>
+      <group ref={bang} visible={false}>
+        <LabelSprite text="💥 Bump!" position={[0, 2.3, -1.6]} width={2.4} />
+      </group>
     </group>
   );
 }

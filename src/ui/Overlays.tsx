@@ -12,6 +12,7 @@ export function Welcome() {
   if (!show) return null;
   const start = (worldId: string) => {
     unlockAudio();
+    if (worldId !== useStore.getState().worldId) stopCode();
     set({ worldId, showWelcome: false, welcomeSeen: true });
     useStore.getState().openMission(useStore.getState().missionId);
   };

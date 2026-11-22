@@ -4,9 +4,12 @@ import type { CheckApi, Mission, WorldSnapshot } from './types';
 
 export class MissionChecker {
   private mem = new Map<string, number>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private notes: Record<string, any> = {};
 
   reset(): void {
     this.mem.clear();
+    this.notes = {};
   }
 
   /**
@@ -20,6 +23,8 @@ export class MissionChecker {
     const api: CheckApi = {
       dev: (id) => states[id] ?? emptyState(),
       world,
+      mem: this.notes,
+      dt,
       held(cond, seconds, slot = 0) {
         const key = `${mission.id}:${index}:h${slot}`;
         const t = cond ? (mem.get(key) ?? 0) + dt : 0;

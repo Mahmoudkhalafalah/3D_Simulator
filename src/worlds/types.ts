@@ -60,6 +60,11 @@ export interface CheckApi {
   held(cond: boolean, seconds: number, slot?: number): boolean;
   /** How many times `cond` has switched from false to true */
   count(cond: boolean, slot?: number): number;
+  /** Free notes an objective can keep between checks (e.g. the digits seen so far) */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mem: Record<string, any>;
+  /** Seconds since the previous check */
+  dt: number;
 }
 
 export interface Objective {
@@ -85,6 +90,8 @@ export interface Mission {
   /** Completed in order: each one unlocks after the previous one */
   objectives: Objective[];
   setup?: MissionSetup;
+  /** Where the world camera looks when the mission opens */
+  view?: { position: [number, number, number]; target: [number, number, number] };
   /** Course sessions this mission practises, e.g. ['L1S3', 'L1S5'] (see worlds/course.ts) */
   course?: string[];
 }

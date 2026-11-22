@@ -1,4 +1,4 @@
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Bloom, EffectComposer } from '@react-three/postprocessing';
 import { useEffect, useRef, useState } from 'react';
@@ -198,14 +198,32 @@ function WorldControls() {
   );
 }
 
+/** When a mission opens, look at the gadget it is about. */
+function MissionCamera() {
+  const world = useWorld();
+  const mission = useMission();
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls) as unknown as { target: { set(x: number, y: number, z: number): void }; update(): void } | null;
+  useEffect(() => {
+    const v = mission.view ?? world.camera;
+    camera.position.set(...v.position);
+    if (controls) {
+      controls.target.set(...v.target);
+      controls.update();
+    } else camera.lookAt(...v.target);
+  }, [mission.id, world.id, camera, controls]); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
+
 export function WorldView() {
   const world = useWorld();
   const Scene = SCENES[world.id];
   return (
     <div className="world">
-      <Canvas key={world.id} shadows dpr={[1, 2]} camera={{ position: world.camera.position, fov: 40, near: 0.1, far: 300 }}>
+      <Canvas shadows dpr={[1, 2]} camera={{ position: world.camera.position, fov: 40, near: 0.1, far: 300 }}>
         {Scene && <Scene />}
         <OrbitControls makeDefault target={world.camera.target} maxPolarAngle={1.42} minDistance={4} maxDistance={45} enableDamping dampingFactor={0.12} />
+        <MissionCamera />
         <EffectComposer>
           <Bloom mipmapBlur intensity={0.9} luminanceThreshold={1} luminanceSmoothing={0.2} />
         </EffectComposer>

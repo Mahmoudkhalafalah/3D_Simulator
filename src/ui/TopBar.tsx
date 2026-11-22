@@ -28,6 +28,7 @@ export function TopBar() {
       if (data.app !== 'circuit-world' || !data.project) throw new Error('not a Circuit World file');
       const s = useStore.getState();
       stopCode();
+      if (data.world) useStore.setState({ worldId: data.world });
       s.openMission(data.mission);
       const key = projectKey(data.world ?? s.worldId, data.mission);
       useStore.setState({ projects: { ...useStore.getState().projects, [key]: data.project } });

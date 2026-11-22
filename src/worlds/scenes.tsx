@@ -2,7 +2,9 @@
 // tests (which run in Node, without a browser) never load any 3D code.
 import type { ComponentType } from 'react';
 import { SmartHomeScene } from './smartHome/Scene';
+import { TrafficTownScene } from './trafficTown/Scene';
 
 export const SCENES: Record<string, ComponentType> = {
   smartHome: SmartHomeScene,
+  trafficTown: TrafficTownScene,
 };
