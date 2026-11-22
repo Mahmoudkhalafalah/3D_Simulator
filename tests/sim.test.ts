@@ -49,7 +49,7 @@ async function runSketch(opts: {
   const empty: RunResult = { compiled: false, output: res.output, serial: '', done: [], states: {}, history: [] };
   if (!res.ok || !res.hex) return empty;
   const inputs = opts.inputs ?? defaultInputs();
-  const sim = opts.sim ?? new SandboxSim();
+  const sim: WorldSim = opts.sim ?? new SandboxSim();
   const { scenario, mission } = opts;
   let serial = '';
   const boot = (eeprom?: Uint8Array) => {
@@ -73,6 +73,7 @@ async function runSketch(opts: {
       engine = boot(engine.eeprom());
     }
     sim.step(dt, inputs, engine.states);
+    for (const e of sim.drainEvents?.() ?? []) if (e === 'power') engine = boot(engine.eeprom());
     engine.step(dt);
     if (t >= nextSample) {
       nextSample += 1;

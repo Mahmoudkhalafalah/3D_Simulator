@@ -1,4 +1,4 @@
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Bloom, EffectComposer } from '@react-three/postprocessing';
 import { useEffect, useRef, useState } from 'react';
@@ -198,20 +198,25 @@ function WorldControls() {
   );
 }
 
-/** When a mission opens, look at the gadget it is about. */
+/** When a mission opens, look at the gadget it is about (applied on the next frame, after the controls settle). */
 function MissionCamera() {
   const world = useWorld();
   const mission = useMission();
-  const camera = useThree((s) => s.camera);
-  const controls = useThree((s) => s.controls) as unknown as { target: { set(x: number, y: number, z: number): void }; update(): void } | null;
+  const pending = useRef<{ position: [number, number, number]; target: [number, number, number] } | null>(null);
   useEffect(() => {
-    const v = mission.view ?? world.camera;
+    pending.current = mission.view ?? world.camera;
+  }, [mission.id, world.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useFrame(({ camera, controls }) => {
+    const v = pending.current;
+    if (!v) return;
+    pending.current = null;
     camera.position.set(...v.position);
-    if (controls) {
-      controls.target.set(...v.target);
-      controls.update();
+    const c = controls as unknown as { target?: { set(x: number, y: number, z: number): void }; update?(): void } | null;
+    if (c?.target && c.update) {
+      c.target.set(...v.target);
+      c.update();
     } else camera.lookAt(...v.target);
-  }, [mission.id, world.id, camera, controls]); // eslint-disable-line react-hooks/exhaustive-deps
+  });
   return null;
 }
 
@@ -222,7 +227,7 @@ export function WorldView() {
     <div className="world">
       <Canvas shadows dpr={[1, 2]} camera={{ position: world.camera.position, fov: 40, near: 0.1, far: 300 }}>
         {Scene && <Scene />}
-        <OrbitControls makeDefault target={world.camera.target} maxPolarAngle={1.42} minDistance={4} maxDistance={45} enableDamping dampingFactor={0.12} />
+        <OrbitControls makeDefault maxPolarAngle={1.42} minDistance={4} maxDistance={45} enableDamping dampingFactor={0.12} />
         <MissionCamera />
         <EffectComposer>
           <Bloom mipmapBlur intensity={0.9} luminanceThreshold={1} luminanceSmoothing={0.2} />

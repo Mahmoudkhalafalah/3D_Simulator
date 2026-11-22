@@ -1,6 +1,6 @@
-import { between, type Scenario } from '../scenario';
+import { once, type Scenario } from '../scenario';
 
-const at = (t: number, when: number) => between(t, when, when + 0.02);
+const at = once;
 
 export const TRAFFIC_TOWN_SCENARIOS: Record<string, Scenario> = {
   railLights: { duration: 8 },

@@ -1,6 +1,6 @@
-import { between, type Scenario } from '../scenario';
+import { between, once, type Scenario } from '../scenario';
 
-const at = (t: number, when: number) => between(t, when, when + 0.02);
+const at = once;
 
 export const GARDEN_SCENARIOS: Record<string, Scenario> = {
   thirstyPlant: {

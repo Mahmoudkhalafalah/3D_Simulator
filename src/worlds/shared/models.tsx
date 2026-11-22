@@ -196,7 +196,12 @@ export function LabelSprite({ text, position, width = 1.5 }: { text: string; pos
         g.roundRect(4, 4, 504, 120, 60);
         g.fill();
         g.fillStyle = '#0f172a';
-        g.font = '800 58px Nunito, "Segoe UI Emoji", sans-serif';
+        let size = 58;
+        g.font = `800 ${size}px Nunito, "Segoe UI Emoji", sans-serif`;
+        while (g.measureText(text).width > 460 && size > 24) {
+          size -= 2;
+          g.font = `800 ${size}px Nunito, "Segoe UI Emoji", sans-serif`;
+        }
         g.textAlign = 'center';
         g.textBaseline = 'middle';
         g.fillText(text, 256, 68);

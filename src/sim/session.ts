@@ -32,6 +32,7 @@ export const live = {
 };
 
 let engine: SimEngine | null = null;
+let lastHex: string | null = null;
 let serialBuffer = '';
 let lastWires: Wire[] | null = null;
 const checker = new MissionChecker();
@@ -90,6 +91,7 @@ function sense(): SenseMap {
 
 // ---------- the program ----------
 export function startProgram(hex: string): void {
+  lastHex = hex;
   const s = useStore.getState();
   const world = getWorld(s.worldId);
   const mission = currentMission();
@@ -137,6 +139,11 @@ function updateWorld(dt: number): void {
   for (const e of live.sim!.drainEvents?.() ?? []) {
     if (e === 'bump') playBump();
     else if (e === 'pop') playPop();
+    else if (e === 'power' && engine && lastHex) {
+      // Switch the board off and on: the program starts again, EEPROM keeps its contents
+      click();
+      startProgram(lastHex);
+    }
   }
 }
 

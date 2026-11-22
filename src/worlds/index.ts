@@ -2,8 +2,9 @@ import type { WorldDef } from './types';
 import { SMART_HOME } from './smartHome';
 import { TRAFFIC_TOWN } from './trafficTown';
 import { GARDEN } from './garden';
+import { SECRET_LAB } from './lab';
 
-export const WORLDS: WorldDef[] = [SMART_HOME, TRAFFIC_TOWN, GARDEN];
+export const WORLDS: WorldDef[] = [SMART_HOME, TRAFFIC_TOWN, GARDEN, SECRET_LAB];
 
 /** Worlds on the roadmap, shown as "coming soon" on the welcome screen. */
 export const UPCOMING_WORLDS = [

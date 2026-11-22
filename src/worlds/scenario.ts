@@ -13,3 +13,6 @@ export interface Scenario {
 }
 
 export const between = (t: number, a: number, b: number) => t >= a && t < b;
+
+/** True in exactly one 1/60 s test frame: the first one at or after `when`. */
+export const once = (t: number, when: number) => t >= when - 1e-6 && t < when + 1 / 60 - 1e-6;
