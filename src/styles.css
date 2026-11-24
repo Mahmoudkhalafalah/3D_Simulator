@@ -247,6 +247,8 @@ button.world-card:hover { transform: translateY(-3px); }
 .mission-tile .emoji { font-size: 30px; }
 .mission-tile small { color: var(--muted); font-weight: 800; }
 .mission-tile b { font-size: 16px; font-weight: 900; }
+.mission-tile .two-boards { position: absolute; top: 12px; right: 12px; font-weight: 900; font-size: 11px; color: #fff; background: linear-gradient(90deg, #0d9488, #2563eb); padding: 3px 9px; border-radius: 999px; }
+.mission-tile.done .two-boards { top: 38px; }
 .mission-tile .star { position: absolute; top: 10px; right: 12px; font-weight: 900; font-size: 12px; color: #a16207; background: #fef9c3; padding: 2px 8px; border-radius: 999px; }
 
 .solution { width: 720px; }
@@ -305,7 +307,10 @@ button.world-card:hover { transform: translateY(-3px); }
 .editor-switch button { background: transparent; color: #334155; font-weight: 900; font-size: 12px; padding: 4px 10px; border-radius: 999px; }
 .editor-switch button.active { background: #fff; color: var(--primary); box-shadow: 0 1px 3px rgba(15,23,42,0.2); }
 .blocks-wrap { position: relative; }
-.blocks-area { position: absolute; inset: 0; }
+/* Blockly gives its toolbox z-index 70: keep that inside the blocks area so it never
+   shows through the mission list, the celebration or other windows. */
+.blocks-area { position: absolute; inset: 0; isolation: isolate; }
+.blocks-host, .blocks-wrap { isolation: isolate; }
 .blocks-loading { padding: 20px; color: var(--muted); font-weight: 800; }
 .peek-btn { position: absolute; right: 70px; bottom: 12px; z-index: 5; background: #0f172a; color: #fff; font-weight: 800; font-size: 12px; padding: 5px 12px; border-radius: 999px; }
 .code-wrap.blocks-wrap { display: flex; flex-direction: column; }

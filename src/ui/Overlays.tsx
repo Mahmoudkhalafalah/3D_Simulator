@@ -114,6 +114,7 @@ export function MissionMap() {
                 <small>{m.objectives.length ? `Mission ${i + 1}` : 'Sandbox'}</small>
                 <b>{m.title}</b>
                 {!!m.course?.length && <span className="tile-course">📘 {m.course.map(courseTag).join(', ')}</span>}
+                {m.boards === 2 && <span className="two-boards">🅰️🅱️ 2 Arduinos</span>}
                 {done && <span className="star">⭐ Done</span>}
               </button>
             );

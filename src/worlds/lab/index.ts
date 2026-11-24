@@ -6,7 +6,7 @@ export const SECRET_LAB: WorldDef = {
   id: 'lab',
   title: 'Secret Lab',
   emoji: '🔬',
-  tagline: 'A keypad vault, a security camera, a robot arm, binary lights and the lab computer.',
+  tagline: 'A keypad vault, a security camera, a robot arm, binary lights, and two Arduinos talking to each other.',
   help: 'Click the arm button to press it. Use the keypad and joystick below. Drag to look around.',
   devices: [
     { id: 'thiefSensor', type: 'pir', name: 'Motion sensor', emoji: '👀' },
