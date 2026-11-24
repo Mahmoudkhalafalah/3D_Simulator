@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { Wire } from './sim/circuit';
@@ -16,6 +17,10 @@ export interface Project {
   blocks2?: object;
   blocksCode?: string;
   blocksCode2?: string;
+  /** "Pick the parts myself": the modules the kid put on the bench, in order */
+  parts?: string[];
+  /** Where the kid dragged modules to on the bench (x, z in cm) */
+  positions?: Record<string, [number, number]>;
 }
 
 export type RunStatus = 'stopped' | 'compiling' | 'running';
@@ -28,6 +33,8 @@ interface State {
   completed: Record<string, boolean>;
   welcomeSeen: boolean;
   muted: boolean;
+  /** Kids choose which modules a mission needs from the parts box */
+  pickParts: boolean;
 
   status: RunStatus;
   /** The code that is currently running (to warn when the editor has changed) */
@@ -92,6 +99,7 @@ export const useStore = create<State>()(
       completed: {},
       welcomeSeen: false,
       muted: false,
+      pickParts: false,
 
       status: 'stopped',
       runningCode: null,
@@ -194,6 +202,7 @@ export const useStore = create<State>()(
         completed: s.completed,
         welcomeSeen: s.welcomeSeen,
         muted: s.muted,
+        pickParts: s.pickParts,
       }),
     },
   ),
@@ -237,6 +246,25 @@ export function currentMission(): Mission {
 export function currentInputs(): WorldInputs {
   const s = useStore.getState();
   return { hour: s.hour, temperature: s.temperature, humidity: s.humidity, values: s.values, pressed: s.pressed, keys: s.keys };
+}
+
+/** The modules on the workbench: the mission's own, or the ones the kid picked from the parts box. */
+export function benchDevices(world: WorldDef, mission: Mission, project: Project, pick: boolean) {
+  if (!pick) return missionDevices(world, mission);
+  return (project.parts ?? []).map((id) => world.devices.find((d) => d.id === id)).filter((d): d is NonNullable<typeof d> => !!d);
+}
+
+export function useBenchDevices() {
+  const world = useWorld();
+  const mission = useMission();
+  const project = useProject();
+  const pick = useStore((s) => s.pickParts);
+  return useMemo(() => benchDevices(world, mission, project, pick), [world, mission, project, pick]);
+}
+
+export function currentBenchDevices() {
+  const s = useStore.getState();
+  return benchDevices(getWorld(s.worldId), currentMission(), currentProject(), s.pickParts);
 }
 
 export function missionDevices(world: WorldDef, mission: Mission) {

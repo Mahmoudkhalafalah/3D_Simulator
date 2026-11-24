@@ -31,3 +31,10 @@ export function baseSense(inputs: WorldInputs): SenseMap {
 export function withSense(base: SenseMap, over: Partial<SenseMap>): SenseMap {
   return { ...base, ...over };
 }
+
+/** Buttons as the world sees them: pressed by the player OR by someone in the world (a visitor ringing the bell...). */
+export function pressedNow(devices: { id: string; type: string }[], inputs: WorldInputs, sense: SenseMap | null): Record<string, boolean> {
+  const out = { ...inputs.pressed };
+  if (sense) for (const d of devices) if (d.type === 'button' || d.type === 'joystick') out[d.id] = sense.pressed(d.id);
+  return out;
+}

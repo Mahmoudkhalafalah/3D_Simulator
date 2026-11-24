@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react';
-import { useFrame, type ThreeEvent } from '@react-three/fiber';
+import { movePart } from './wiring';
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { DEVICE_SPECS, type DeviceInstance } from '../devices/specs';
@@ -448,6 +449,44 @@ function Body({ device }: { device: DeviceInstance }) {
   }
 }
 
+/** Drag a module around the bench by grabbing its board (pins and buttons keep working). */
+function useDrag(id: string, pos: [number, number, number]) {
+  const controls = useThree((s) => s.controls) as unknown as { enabled: boolean } | null;
+  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
+  const hit = useMemo(() => new THREE.Vector3(), []);
+  const drag = useRef<{ dx: number; dz: number } | null>(null);
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  type E = ThreeEvent<PointerEvent> & { target: { setPointerCapture(id: number): void; releasePointerCapture(id: number): void } };
+  const end = (e: E) => {
+    if (!drag.current) return;
+    drag.current = null;
+    e.target.releasePointerCapture(e.pointerId);
+    if (controls) controls.enabled = true;
+    document.body.style.cursor = '';
+  };
+  return {
+    onPointerDown: (e: E) => {
+      if (e.button !== 0 || e.intersections[0]?.object !== e.object || !e.ray.intersectPlane(plane, hit)) return;
+      e.stopPropagation();
+      e.target.setPointerCapture(e.pointerId);
+      drag.current = { dx: pos[0] - hit.x, dz: pos[2] - hit.z };
+      if (controls) controls.enabled = false;
+      document.body.style.cursor = 'grabbing';
+    },
+    onPointerMove: (e: E) => {
+      if (!drag.current || !e.ray.intersectPlane(plane, hit)) return;
+      e.stopPropagation();
+      const x = clamp(hit.x + drag.current.dx, -26, 26);
+      const z = clamp(hit.z + drag.current.dz, 3, 30);
+      movePart(id, Math.round(x * 20) / 20, Math.round(z * 20) / 20);
+    },
+    onPointerUp: end,
+    onPointerCancel: end,
+    onPointerOver: () => !drag.current && (document.body.style.cursor = 'grab'),
+    onPointerOut: () => !drag.current && (document.body.style.cursor = ''),
+  };
+}
+
 export function ModuleView({ placement, problems }: { placement: ModulePlacement; problems: Set<string> }) {
   const { device, pos } = placement;
   const spec = DEVICE_SPECS[device.type];
@@ -455,6 +494,7 @@ export function ModuleView({ placement, problems }: { placement: ModulePlacement
   const tex = useMemo(() => pcbTexture(device, w, d), [device, w, d]);
   const n = spec.pins.length;
   const hasVcc = spec.pins.some((p) => p.role === 'vcc');
+  const grab = useDrag(device.id, pos);
 
   return (
     <group position={pos}>
@@ -465,11 +505,11 @@ export function ModuleView({ placement, problems }: { placement: ModulePlacement
           <meshStandardMaterial color="#d4d4d8" metalness={0.7} />
         </mesh>
       ))}
-      <mesh position={[0, MODULE_BASE_Y + PCB_T / 2, 0]} castShadow receiveShadow>
+      <mesh position={[0, MODULE_BASE_Y + PCB_T / 2, 0]} castShadow receiveShadow {...grab}>
         <boxGeometry args={[w, PCB_T, d]} />
         <meshStandardMaterial color={spec.pcb} />
       </mesh>
-      <mesh position={[0, TOP + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[0, TOP + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]} {...grab}>
         <planeGeometry args={[w, d]} />
         <meshStandardMaterial map={tex} />
       </mesh>

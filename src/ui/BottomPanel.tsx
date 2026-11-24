@@ -1,16 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { missionDevices, useMission, useProject, useStore, useWorld } from '../store';
+import { useBenchDevices, useMission, useProject, useStore } from '../store';
 import { analyzeCircuit } from '../sim/circuit';
 import { serialSend } from '../sim/session';
 
+/** In "pick the parts" mode: how many modules the mission needs that are not on the bench yet. */
+function useMissingParts(): number {
+  const mission = useMission();
+  const devices = useBenchDevices();
+  const pick = useStore((s) => s.pickParts);
+  if (!pick || !mission.objectives.length) return 0;
+  return mission.devices.filter((id) => !devices.some((d) => d.id === id)).length;
+}
+
 function Helper() {
-  const world = useWorld();
   const mission = useMission();
   const project = useProject();
+  const devices = useBenchDevices();
   const status = useStore((s) => s.status);
-  const analysis = useMemo(() => analyzeCircuit(missionDevices(world, mission), project.wires, mission.boards ?? 1), [world, mission, project.wires]);
+  const missing = useMissingParts();
+  const analysis = useMemo(() => analyzeCircuit(devices, project.wires, mission.boards ?? 1), [devices, project.wires, mission.boards]);
   const order = { error: 0, warn: 1, info: 2 };
-  const issues = [...analysis.issues].sort((a, b) => order[a.level] - order[b.level]);
+  const issues = [
+    ...(missing
+      ? [{ level: 'warn' as const, text: `🧰 This mission needs ${missing} more part${missing > 1 ? 's' : ''}. Read the story and the steps: which modules do they talk about? Add them from the parts box.`, refs: [] }]
+      : []),
+    ...analysis.issues,
+  ].sort((a, b) => order[a.level] - order[b.level]);
   const allWired = Object.values(analysis.devices).every((d) => d.powerOk) && !issues.some((i) => i.level !== 'info');
   return (
     <div className="helper">
@@ -98,13 +113,14 @@ export function BottomPanel({ jump }: { jump: (line: number) => void }) {
   const tab = useStore((s) => s.bottomTab);
   const set = useStore((s) => s.set);
   const errorCount = useStore((s) => s.diagnostics.filter((d) => d.severity === 'error').length);
-  const world = useWorld();
   const mission = useMission();
   const project = useProject();
+  const devices = useBenchDevices();
+  const missing = useMissingParts();
   const issueCount = useMemo(
-    () => analyzeCircuit(missionDevices(world, mission), project.wires, mission.boards ?? 1).issues.filter((i) => i.level !== 'info').length,
-    [world, mission, project.wires],
-  );
+    () => analyzeCircuit(devices, project.wires, mission.boards ?? 1).issues.filter((i) => i.level !== 'info').length,
+    [devices, project.wires, mission.boards],
+  ) + (missing ? 1 : 0);
   return (
     <div className="card bottom-card">
       <div className="tabs">

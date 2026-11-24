@@ -75,9 +75,39 @@ export function freeRailHole(row: 'P' | 'N'): string {
   return `rail:${row}0`;
 }
 
+/** Put a module from the parts box on the bench. */
+export function addPart(id: string): void {
+  const parts = currentProject().parts ?? [];
+  if (parts.includes(id)) return;
+  useStore.getState().patchProject({ parts: [...parts, id] });
+  playPop();
+}
+
+/** Take a module off the bench, with its wires. */
+export function removePart(id: string): void {
+  const p = currentProject();
+  const positions = { ...(p.positions ?? {}) };
+  delete positions[id];
+  useStore.getState().patchProject({
+    parts: (p.parts ?? []).filter((x) => x !== id),
+    wires: p.wires.filter((w) => !w.a.startsWith(`${id}:`) && !w.b.startsWith(`${id}:`)),
+    positions,
+  });
+}
+
+/** Remember where a module was dragged to. */
+export function movePart(id: string, x: number, z: number): void {
+  const p = currentProject();
+  useStore.getState().patchProject({ positions: { ...(p.positions ?? {}), [id]: [x, z] } });
+}
+
 /** "Wire it for me": replace the wiring with the mission's solution wiring. */
 export function autoWire(): void {
   const mission = currentMission();
+  if (useStore.getState().pickParts) {
+    const parts = currentProject().parts ?? [];
+    useStore.getState().patchProject({ parts: [...parts, ...mission.devices.filter((d) => !parts.includes(d))] });
+  }
   const wires: Wire[] = [];
   for (const [a, b] of mission.solutionWires) {
     wires.push({ id: `w${nextId++}`, a, b, color: colorFor(a, b, wires) });

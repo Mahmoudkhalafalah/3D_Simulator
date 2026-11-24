@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { missionDevices, useMission, useProject, useStore, useWorld } from '../store';
+import { currentProject, useBenchDevices, useMission, useProject, useStore, useWorld } from '../store';
+import { DEVICE_SPECS } from '../devices/specs';
 import { analyzeCircuit, describeRef } from '../sim/circuit';
 import { UnoBoard } from './UnoBoard';
 import { Rail } from './Rail';
@@ -10,7 +11,7 @@ import { ModuleView } from './Modules';
 import { PendingWire, Wires } from './Wires';
 import { benchDepth, benchWidth, layoutModules } from './layout';
 import { matTexture } from './textures';
-import { addWire, clearWires, freeRailHole, removeWire } from './wiring';
+import { addPart, addWire, clearWires, freeRailHole, removePart, removeWire } from './wiring';
 import { BOARD_IDS, BOARD_NAMES, UNO_PINS } from '../sim/board-uno';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { FocusButton } from '../ui/FocusButton';
@@ -101,15 +102,81 @@ function ConnectMenu() {
   );
 }
 
+/** "Pick the parts myself": the world's gadgets, to put on the bench or take off again. */
+function PartsBox() {
+  const world = useWorld();
+  const project = useProject();
+  const pick = useStore((s) => s.pickParts);
+  const [open, setOpen] = useState(true);
+  const setPick = (on: boolean) => {
+    // Keep the modules that already have wires when switching to picking
+    if (on && currentProject().parts === undefined) {
+      const wired = new Set(currentProject().wires.flatMap((w) => [w.a, w.b]).map((r) => r.split(':')[0]));
+      useStore.getState().patchProject({ parts: world.devices.filter((d) => wired.has(d.id)).map((d) => d.id) });
+    }
+    useStore.setState({ pickParts: on });
+  };
+  if (!pick) {
+    return (
+      <button className="parts-toggle" onClick={() => setPick(true)} title="Choose which modules the mission needs, and place them yourself">
+        🧰 Pick the parts myself
+      </button>
+    );
+  }
+  const placed = new Set(project.parts ?? []);
+  return (
+    <div className={`parts-box ${open ? '' : 'closed'}`}>
+      <div className="parts-head">
+        <button className="parts-title" onClick={() => setOpen(!open)}>
+          🧰 Parts box <span>{open ? '▾' : '▸'}</span>
+        </button>
+        <button className="parts-off" onClick={() => setPick(false)} title="Use the ready-made parts for each mission">
+          ✕
+        </button>
+      </div>
+      {open && (
+        <>
+          <p className="parts-tip">Which modules does this mission need? Add them, then drag them where you like.</p>
+          <div className="parts-list">
+            {world.devices.map((d) => {
+              const on = placed.has(d.id);
+              return (
+                <div key={d.id} className={`part ${on ? 'on' : ''}`}>
+                  <span className="part-emoji">{d.emoji}</span>
+                  <span className="part-name">
+                    <b>{d.name}</b>
+                    <small>{DEVICE_SPECS[d.type].title}</small>
+                  </span>
+                  {on ? (
+                    <button onClick={() => removePart(d.id)} title="Put it back in the box">
+                      ↩
+                    </button>
+                  ) : (
+                    <button className="add" onClick={() => addPart(d.id)}>
+                      + Add
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function Bench() {
   const world = useWorld();
   const mission = useMission();
   const project = useProject();
-  const devices = useMemo(() => missionDevices(world, mission), [world, mission]);
-  const placements = useMemo(() => layoutModules(devices), [devices]);
+  const devices = useBenchDevices();
+  const placements = useMemo(() => layoutModules(devices, project.positions), [devices, project.positions]);
+  // Frame the camera on the tidy layout, so dragging a module does not move the camera
+  const framing = useMemo(() => layoutModules(devices), [devices]);
   const boards = mission.boards ?? 1;
-  const depth = benchDepth(placements);
-  const width = benchWidth(placements, boards);
+  const depth = benchDepth(framing);
+  const width = benchWidth(framing, boards);
   const analysis = useMemo(() => analyzeCircuit(devices, project.wires, boards), [devices, project.wires, boards]);
   const problems = useMemo(
     () => new Set(analysis.issues.filter((i) => i.level !== 'info').flatMap((i) => i.refs)),
@@ -201,6 +268,7 @@ export function Bench() {
         )}
       </div>
       <ConnectMenu />
+      <PartsBox />
     </div>
   );
 }

@@ -39,7 +39,7 @@ export interface ModulePlacement {
 }
 
 /** Rows of modules in front of the rail, packed by each module's real width. */
-export function layoutModules(devices: DeviceInstance[]): ModulePlacement[] {
+export function layoutModules(devices: DeviceInstance[], positions: Record<string, [number, number]> = {}): ModulePlacement[] {
   const GAP = 2.6;
   const MAX_ROW = 38;
   const rows: DeviceInstance[][] = [[]];
@@ -71,6 +71,11 @@ export function layoutModules(devices: DeviceInstance[]): ModulePlacement[] {
       depth = Math.max(depth, d);
     });
     top += depth + 3.0;
+  }
+  // Modules the kid dragged somewhere else
+  for (const p of out) {
+    const saved = positions[p.device.id];
+    if (saved) p.pos = [saved[0], 0, saved[1]];
   }
   return out;
 }

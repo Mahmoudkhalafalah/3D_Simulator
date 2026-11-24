@@ -4,9 +4,9 @@ import type { SmartHomeSim } from './actors';
 export const SMART_HOME_SCENARIOS: Record<string, Scenario> = {
   blink: { duration: 7 },
   doorbell: {
-    duration: 6,
-    script: (t, w) => {
-      w.pressed.doorbell = between(t, 1, 1.3);
+    duration: 11,
+    script: (t, _w, sim) => {
+      if (between(t, 0.5, 0.52)) sim.action('visitor'); // the visitor rings the doorbell
     },
   },
   nightlight: {

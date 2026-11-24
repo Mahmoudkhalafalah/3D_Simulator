@@ -7,7 +7,7 @@ import { analyzeCircuit, type Wire } from '../src/sim/circuit';
 import { WORLDS } from '../src/worlds';
 import { SCENARIOS } from '../src/worlds/scenarios';
 import { MissionChecker } from '../src/worlds/checker';
-import { daylight } from '../src/worlds/sense';
+import { daylight, pressedNow } from '../src/worlds/sense';
 import { SandboxSim } from '../src/worlds/sandbox';
 import type { Scenario } from '../src/worlds/scenario';
 import { defaultInputs, type Mission, type WorldDef, type WorldInputs, type WorldSim, type WorldSnapshot } from '../src/worlds/types';
@@ -90,7 +90,8 @@ async function runSketch(opts: {
       history.push(JSON.parse(JSON.stringify(engine.states)));
     }
     if (mission) {
-      const world: WorldSnapshot = { ...inputs, daylight: daylight(inputs.hour), serial: out[0], serial2: out[1], link: { ...engine.link }, ...sim.snapshot() };
+      const pressed = pressedNow(opts.devices, inputs, sim.sense(inputs));
+      const world: WorldSnapshot = { ...inputs, pressed, daylight: daylight(inputs.hour), serial: out[0], serial2: out[1], link: { ...engine.link }, ...sim.snapshot() };
       const idx = checker.step(mission, done, engine.states, world, dt);
       if (idx >= 0) done[idx] = true;
     }

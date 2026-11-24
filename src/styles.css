@@ -329,3 +329,23 @@ button.world-card:hover { transform: translateY(-3px); }
 .fs-bar .run.restart { background: #334155; }
 .main.blocks-mode .mission-card { max-height: 30%; }
 .main.blocks-mode .bottom-card { height: 150px; }
+
+/* ---------- parts box ---------- */
+.parts-toggle { position: absolute; left: 12px; top: 74px; z-index: 4; background: #fff7ed; color: #9a3412; border: 2px solid #fdba74; font-weight: 900; font-size: 13px; padding: 6px 12px; border-radius: 999px; box-shadow: var(--shadow); }
+.parts-toggle:hover { background: #ffedd5; }
+.parts-box { position: absolute; left: 12px; top: 74px; z-index: 4; width: 250px; max-height: calc(100% - 96px); display: flex; flex-direction: column; background: rgba(255,255,255,0.97); border-radius: 14px; box-shadow: 0 10px 30px rgba(15,23,42,0.25); overflow: hidden; }
+.parts-box.closed { width: auto; }
+.parts-head { display: flex; align-items: center; justify-content: space-between; background: #fff7ed; border-bottom: 1px solid #fed7aa; }
+.parts-title { background: none; font-weight: 900; color: #9a3412; padding: 8px 12px; font-size: 14px; }
+.parts-title span { margin-left: 4px; }
+.parts-off { background: none; color: #9a3412; font-weight: 900; padding: 8px 12px; }
+.parts-tip { margin: 8px 12px 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.parts-list { overflow: auto; padding: 4px 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.part { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; }
+.part.on { background: #ecfdf5; border-color: #86efac; }
+.part-emoji { font-size: 20px; width: 24px; text-align: center; }
+.part-name { flex: 1; display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.part-name b { font-size: 13px; }
+.part-name small { font-size: 11px; color: var(--muted); font-weight: 700; }
+.part button { background: #e2e8f0; color: #334155; font-weight: 900; font-size: 12px; padding: 4px 8px; border-radius: 8px; white-space: nowrap; }
+.part button.add { background: var(--primary); color: #fff; }

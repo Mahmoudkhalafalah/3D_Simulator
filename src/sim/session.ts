@@ -3,11 +3,11 @@
 import { SimEngine } from './engine';
 import { CLOCK_HZ } from './avr-runner';
 import { emptyState, type DeviceState, type SenseMap } from '../devices/logic';
-import { useStore, currentMission, currentProject, missionDevices, currentInputs, projectKey } from '../store';
+import { useStore, currentMission, currentProject, currentBenchDevices, currentInputs, projectKey } from '../store';
 import { getWorld } from '../worlds';
 import type { WorldSim, WorldSnapshot } from '../worlds/types';
 import { MissionChecker } from '../worlds/checker';
-import { daylight } from '../worlds/sense';
+import { daylight, pressedNow } from '../worlds/sense';
 import { click, playBump, playObjective, playPop, playSuccess, setTone, silenceAll } from '../audio/sound';
 import type { Wire } from './circuit';
 
@@ -99,14 +99,11 @@ function sense(): SenseMap {
 /** Start the compiled program(s): one hex per Arduino. */
 export function startProgram(hexes: string[]): void {
   lastHexes = hexes;
-  const s = useStore.getState();
-  const world = getWorld(s.worldId);
-  const mission = currentMission();
   const project = currentProject();
   const previous = live.states;
   if (engine) saveEeprom();
   const roms = hexes.map((_, b) => loadEeprom(boardKey(b)));
-  engine = new SimEngine(hexes, missionDevices(world, mission), project.wires, sense, roms);
+  engine = new SimEngine(hexes, currentBenchDevices(), project.wires, sense, roms);
   for (const [id, st] of Object.entries(engine.states)) st.angle = previous[id]?.angle ?? 0;
   engine.onSerial = (byte, board) => {
     serialBuffers[board] += String.fromCharCode(byte);
@@ -160,7 +157,9 @@ function updateWorld(dt: number): void {
 function snapshot(): WorldSnapshot {
   const s = useStore.getState();
   const link = engine ? { ...engine.link } : { bytes: 0, garbled: 0, cleanStreak: 0 };
-  return { ...currentInputs(), daylight: daylight(s.hour), serial: s.serial, serial2: s.serial2, link, ...live.snap };
+  const inputs = currentInputs();
+  const pressed = pressedNow(getWorld(s.worldId).devices, inputs, live.sense);
+  return { ...inputs, pressed, daylight: daylight(s.hour), serial: s.serial, serial2: s.serial2, link, ...live.snap };
 }
 
 function checkMission(dt: number): void {
