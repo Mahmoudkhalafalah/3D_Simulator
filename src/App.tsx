@@ -8,12 +8,13 @@ import { WorldView } from './worlds/WorldView';
 import { Bench } from './bench/Bench';
 import { startLoop } from './sim/session';
 import { checkServer } from './sim/run';
-import { useStore } from './store';
+import { useProject, useStore } from './store';
 import { setMuted } from './audio/sound';
 
 export default function App() {
   const jump = useRef<((line: number) => void) | null>(null);
   const focus = useStore((s) => s.focus);
+  const blocks = useProject().editor === 'blocks';
 
   useEffect(() => {
     startLoop();
@@ -28,7 +29,7 @@ export default function App() {
     <div className="app">
       <TopBar />
       <ToolchainBanner />
-      <main className="main">
+      <main className={`main ${blocks ? 'blocks-mode' : ''}`}>
         <section className={`stage ${focus ? `focus-${focus}` : ''}`}>
           <WorldView />
           <Bench />

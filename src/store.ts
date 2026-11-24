@@ -10,6 +10,12 @@ export interface Project {
   /** Arduino B's code (two-Arduino missions) */
   code2?: string;
   wires: Wire[];
+  /** Block coding: which editor is shown, the saved blocks, and the code they made last */
+  editor?: 'code' | 'blocks';
+  blocks?: object;
+  blocks2?: object;
+  blocksCode?: string;
+  blocksCode2?: string;
 }
 
 export type RunStatus = 'stopped' | 'compiling' | 'running';
@@ -65,6 +71,8 @@ interface State {
 
   set: (partial: Partial<State>) => void;
   setCode: (code: string) => void;
+  /** Change something in the current mission's project */
+  patchProject: (patch: Partial<Project>) => void;
   setWires: (wires: Wire[]) => void;
   setPressed: (id: string, value: boolean) => void;
   setValue: (key: string, value: number) => void;
@@ -119,6 +127,12 @@ export const useStore = create<State>()(
         const key = projectKey(worldId, missionId);
         const current = projects[key] ?? defaultProject(getWorld(worldId), missionId);
         set({ projects: { ...projects, [key]: codeBoard === 1 ? { ...current, code2: code } : { ...current, code } } });
+      },
+      patchProject: (patch) => {
+        const { worldId, missionId, projects } = get();
+        const key = projectKey(worldId, missionId);
+        const current = projects[key] ?? defaultProject(getWorld(worldId), missionId);
+        set({ projects: { ...projects, [key]: { ...current, ...patch } } });
       },
       setWires: (wires) => {
         const { worldId, missionId, projects } = get();

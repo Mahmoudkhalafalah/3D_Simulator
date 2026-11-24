@@ -224,7 +224,7 @@ export function WorldView() {
   const world = useWorld();
   const Scene = SCENES[world.id];
   return (
-    <div className="world">
+    <div className="world fs-panel">
       <Canvas shadows dpr={[1, 2]} camera={{ position: world.camera.position, fov: 40, near: 0.1, far: 300 }}>
         {Scene && <Scene />}
         <OrbitControls makeDefault maxPolarAngle={1.42} minDistance={4} maxDistance={45} enableDamping dampingFactor={0.12} />

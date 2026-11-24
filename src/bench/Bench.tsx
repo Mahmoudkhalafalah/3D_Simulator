@@ -132,7 +132,7 @@ export function Bench() {
   }, []);
 
   return (
-    <div className="bench">
+    <div className="bench fs-panel">
       <Canvas
         shadows
         dpr={[1, 2]}

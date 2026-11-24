@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { runningKey } from '../sim/session';
+import { FullscreenButton } from './FocusButton';
 import CodeMirror, { EditorView, type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { cpp } from '@codemirror/lang-cpp';
 import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from '@codemirror/lint';
 import { autocompletion, type CompletionContext, type Completion } from '@codemirror/autocomplete';
-import { useProject, useStore, useMission } from '../store';
+import { useProject, useStore, useMission, projectKey } from '../store';
+
+const BlocksEditor = lazy(() => import('../blocks/BlocksEditor'));
 
 const ARDUINO: Completion[] = [
   { label: 'pinMode', type: 'function', apply: 'pinMode(pin, OUTPUT);', info: 'Set a pin to OUTPUT (send) or INPUT (listen).' },
@@ -95,9 +98,25 @@ export function CodePanel({ jumpRef }: { jumpRef: React.MutableRefObject<((line:
   }, [jumpRef]);
 
   const changed = status === 'running' && runningCode !== null && runningCode !== runningKey(project);
+  const blocksMode = project.editor === 'blocks';
+  const [peek, setPeek] = useState(false);
+  const key = useStore((s) => projectKey(s.worldId, s.missionId));
+  const starter = board === 1 ? (mission.starterCode2 ?? '') : mission.starterCode;
+  const blocksCode = board === 1 ? project.blocksCode2 : project.blocksCode;
+
+  const toBlocks = () => {
+    const untouched = code === starter || code === blocksCode;
+    if (!untouched && !confirm('Switching to blocks replaces the code you typed with the code made from your blocks. Continue?')) return;
+    useStore.getState().patchProject({ editor: 'blocks' });
+  };
+  const onBlocks = (json: object, generated: string) => {
+    const p = useStore.getState();
+    const patch = board === 1 ? { blocks2: json, blocksCode2: generated, code2: generated } : { blocks: json, blocksCode: generated, code: generated };
+    p.patchProject(patch);
+  };
 
   return (
-    <div className="card code-card">
+    <div className={`card code-card fs-panel ${blocksMode ? 'blocks-mode' : ''}`}>
       <div className="card-head">
         {two ? (
           <span className="board-tabs">
@@ -110,19 +129,46 @@ export function CodePanel({ jumpRef }: { jumpRef: React.MutableRefObject<((line:
         ) : (
           <span>💻 Code</span>
         )}
-        {changed && <span className="badge warn">✏️ Code changed - press Run to upload it</span>}
+        {changed && <span className="badge warn">✏️ Changed - press Run</span>}
+        <span className="editor-switch">
+          <button className={!blocksMode ? 'active' : ''} onClick={() => useStore.getState().patchProject({ editor: 'code' })} title="Type real Arduino C++">
+            💻 Code
+          </button>
+          <button className={blocksMode ? 'active' : ''} onClick={() => !blocksMode && toBlocks()} title="Drag and drop blocks">
+            🧩 Blocks
+          </button>
+        </span>
+        <FullscreenButton label={false} />
       </div>
-      <div className="code-wrap">
-        <CodeMirror
-          ref={cm}
-          key={board}
-          value={code}
-          height="100%"
-          extensions={extensions}
-          onChange={(v) => setCode(v)}
-          basicSetup={{ foldGutter: false, highlightActiveLine: true, autocompletion: false }}
-        />
-      </div>
+      {blocksMode ? (
+        <div className="code-wrap blocks-wrap">
+          <div className="blocks-host">
+            <Suspense fallback={<div className="blocks-loading">Loading the blocks…</div>}>
+              <BlocksEditor key={`${key}:${board}`} initial={board === 1 ? project.blocks2 : project.blocks} onChange={onBlocks} />
+            </Suspense>
+            <button className="peek-btn" onClick={() => setPeek(!peek)}>
+              {peek ? '🙈 Hide the C++' : '👀 Show the C++'}
+            </button>
+          </div>
+          {peek && (
+            <div className="peek">
+              <CodeMirror value={code} editable={false} height="100%" extensions={[cpp(), theme]} basicSetup={{ foldGutter: false, highlightActiveLine: false }} />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="code-wrap">
+          <CodeMirror
+            ref={cm}
+            key={board}
+            value={code}
+            height="100%"
+            extensions={extensions}
+            onChange={(v) => setCode(v)}
+            basicSetup={{ foldGutter: false, highlightActiveLine: true, autocompletion: false }}
+          />
+        </div>
+      )}
     </div>
   );
 }

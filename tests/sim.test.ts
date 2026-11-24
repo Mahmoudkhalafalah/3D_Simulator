@@ -14,6 +14,8 @@ import { defaultInputs, type Mission, type WorldDef, type WorldInputs, type Worl
 import type { DeviceInstance } from '../src/devices/specs';
 import type { DeviceState } from '../src/devices/logic';
 import { explain } from '../src/ui/friendly';
+import { generateFromJson } from '../src/blocks/arduino';
+import { BLINK_BLOCKS, EVERYTHING_BLOCKS } from './blocks';
 
 let failures = 0;
 let passes = 0;
@@ -304,6 +306,18 @@ void loop() { if (link.available()) Serial.write(link.read()); }`,
   check('SoftwareSerial between two Arduinos (bit by bit)', r.serial2.includes('soft\r\nsoft'), JSON.stringify(r.serial2.slice(0, 40)));
 }
 
+async function blocksTests() {
+  console.log('\n🧩 Block coding');
+  const home = WORLDS.find((w) => w.id === 'smartHome')!;
+  const blink = home.missions.find((m) => m.id === 'blink')!;
+  const code = generateFromJson(BLINK_BLOCKS);
+  const r = await runMission(home, blink, code, { duration: 7 });
+  check('blink blocks compile', r.compiled, r.compiled ? '' : r.output);
+  check('blink blocks finish "Hello, Porch Light!"', r.done.every(Boolean), JSON.stringify(r.done));
+  const all = await compileSketch(generateFromJson(EVERYTHING_BLOCKS), 'uno');
+  check('every kind of block compiles', all.ok, all.ok ? '' : all.output.split('\n').filter((l) => l.includes('error')).slice(0, 3).join(' | '));
+}
+
 async function circuitTests() {
   console.log('\n🤖 Circuit Helper');
   const home = WORLDS[0];
@@ -373,6 +387,7 @@ async function main() {
     await friendlyTests();
     await speedTest();
     await hardwareTests();
+    await blocksTests();
   }
   for (const world of WORLDS) if (!only || only === world.id) await missionTests(world);
   console.log(`\n${passes} passed, ${failures} failed`);
