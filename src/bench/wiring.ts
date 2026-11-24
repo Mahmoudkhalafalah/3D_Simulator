@@ -11,7 +11,7 @@ const SIGNAL_COLORS = ['#f59e0b', '#16a34a', '#2563eb', '#a855f7', '#ea580c', '#
 function roleOf(ref: string): 'gnd' | 'power' | 'sig' {
   const [part, pin] = ref.split(':');
   if (part === 'rail') return pin.startsWith('P') ? 'power' : 'gnd';
-  if (part === 'uno') {
+  if (part === 'uno' || part === 'uno2') {
     const p = UNO_PINS.find((u) => u.name === pin);
     if (p?.kind === 'gnd') return 'gnd';
     if (p?.kind === 'power5' || p?.kind === 'power33') return 'power';

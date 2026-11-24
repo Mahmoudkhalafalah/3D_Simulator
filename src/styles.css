@@ -290,3 +290,12 @@ button.world-card:hover { transform: translateY(-3px); }
 .course-mission.done { border-color: #86efac; background: #f0fdf4; }
 .course-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-weight: 700; }
 @media (max-width: 1000px) { .course-levels { grid-template-columns: 1fr; } }
+
+/* ---------- two Arduinos ---------- */
+.board-tabs { display: inline-flex; gap: 4px; }
+.board-tabs button { background: #e2e8f0; color: #334155; font-weight: 900; font-size: 13px; padding: 4px 12px; border-radius: 999px; }
+.board-tabs button.active { background: var(--primary); color: #fff; }
+.board-tabs.small { margin-bottom: 6px; }
+.connect-row button.board { background: #f1f5f9; color: #334155; padding: 4px 10px; }
+.connect-row button.board.on { background: var(--primary); color: #fff; }
+.solution-code h4 { margin: 8px 0 4px; }

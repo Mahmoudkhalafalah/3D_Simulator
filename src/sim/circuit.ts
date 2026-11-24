@@ -1,6 +1,6 @@
 // Turns wires into electrical nets and checks the circuit for mistakes,
 // explaining each problem in kid-friendly language.
-import { UNO_PINS, ioName } from './board-uno';
+import { BOARD_IDS, BOARD_NAMES, IO_PER_BOARD, UNO_PINS, boardOfRef, ioName } from './board-uno';
 import { DEVICE_SPECS, pinRef, type DeviceInstance } from '../devices/specs';
 
 export interface Wire {
@@ -49,6 +49,8 @@ export interface CircuitAnalysis {
   devices: Record<string, DeviceWiring>;
   issues: CircuitIssue[];
   shorted: boolean;
+  /** Two-Arduino missions: are the boards' grounds connected? (signals only work with a shared GND) */
+  commonGround: boolean;
 }
 
 class UnionFind {
@@ -74,9 +76,9 @@ class UnionFind {
   }
 }
 
-export function allRefs(devices: DeviceInstance[]): string[] {
+export function allRefs(devices: DeviceInstance[], boards = 1): string[] {
   return [
-    ...UNO_PINS.map((p) => pinRef('uno', p.name)),
+    ...BOARD_IDS.slice(0, boards).flatMap((b) => UNO_PINS.map((p) => pinRef(b, p.name))),
     ...RAIL_PLUS.map((p) => pinRef('rail', p)),
     ...RAIL_MINUS.map((p) => pinRef('rail', p)),
     ...devices.flatMap((d) => DEVICE_SPECS[d.type].pins.map((p) => pinRef(d.id, p.name))),
@@ -88,21 +90,24 @@ const boardPinByName = new Map(UNO_PINS.map((p) => [p.name, p]));
 export function describeRef(ref: string, devices: DeviceInstance[]): string {
   const [part, pin] = ref.split(':');
   if (part === 'uno') return `Arduino ${boardPinByName.get(pin)?.label ?? pin}`;
+  if (part === 'uno2') return `Arduino B ${boardPinByName.get(pin)?.label ?? pin}`;
   if (part === 'rail') return pin.startsWith('P') ? 'red + rail' : 'blue - rail';
   const dev = devices.find((d) => d.id === part);
   return dev ? `${dev.name} ${pin}` : ref;
 }
 
-export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): CircuitAnalysis {
+export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[], boards = 1): CircuitAnalysis {
   const uf = new UnionFind();
-  const refs = allRefs(devices);
+  const refs = allRefs(devices, boards);
   refs.forEach((r) => uf.find(r));
 
-  // Pins connected inside the board / rail itself
-  const gnds = UNO_PINS.filter((p) => p.kind === 'gnd').map((p) => pinRef('uno', p.name));
-  gnds.forEach((g) => uf.union(g, gnds[0]));
-  uf.union('uno:SDA', 'uno:A4');
-  uf.union('uno:SCL', 'uno:A5');
+  // Pins connected inside each board / the rail itself
+  for (const b of BOARD_IDS.slice(0, boards)) {
+    const gnds = UNO_PINS.filter((p) => p.kind === 'gnd').map((p) => pinRef(b, p.name));
+    gnds.forEach((g) => uf.union(g, gnds[0]));
+    uf.union(`${b}:SDA`, `${b}:A4`);
+    uf.union(`${b}:SCL`, `${b}:A5`);
+  }
   RAIL_PLUS.forEach((p) => uf.union(pinRef('rail', p), 'rail:P0'));
   RAIL_MINUS.forEach((p) => uf.union(pinRef('rail', p), 'rail:N0'));
 
@@ -121,9 +126,11 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
     net.refs.push(r);
     netOf.set(r, net);
     const [part, pin] = r.split(':');
-    if (part === 'uno') {
+    const board = boardOfRef(part);
+    if (board >= 0) {
       const bp = boardPinByName.get(pin)!;
-      if (bp.kind === 'io' && !net.ios.includes(bp.io!)) net.ios.push(bp.io!);
+      const io = bp.io! + board * IO_PER_BOARD;
+      if (bp.kind === 'io' && !net.ios.includes(io)) net.ios.push(io);
       if (bp.kind === 'power5') net.has5V = true;
       if (bp.kind === 'power33') net.has3V3 = true;
       if (bp.kind === 'gnd') net.hasGnd = true;
@@ -154,11 +161,39 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
     }
   }
 
-  // Serial pins
-  for (const io of [0, 1]) {
-    const ref = `uno:D${io}`;
-    if (wiredRefs.has(ref)) {
-      issues.push({ level: 'warn', text: `📡 Pin ${io} is used by the Arduino to talk to the computer (Serial). Try a different pin.`, refs: [ref] });
+  // Two Arduinos: they need a shared ground to understand each other's signals
+  const gndNet = (b: number) => netOf.get(pinRef(BOARD_IDS[b], 'GND1'));
+  const commonGround = boards < 2 || gndNet(0) === gndNet(1);
+  const crossNets = nets.filter((n) => new Set(n.ios.map((io) => Math.floor(io / IO_PER_BOARD))).size > 1);
+  if (boards > 1 && crossNets.length && !commonGround) {
+    issues.push({
+      level: 'warn',
+      text: '🔗 The two Arduinos are connected, but not their grounds. Add a wire from a GND pin on Arduino A to a GND pin on Arduino B, or the signals have nothing to compare against.',
+      refs: crossNets.flatMap((n) => n.refs.filter((r) => wiredRefs.has(r))),
+    });
+  }
+
+  // Serial pins (0 = RX, 1 = TX)
+  for (let b = 0; b < boards; b++) {
+    const id = BOARD_IDS[b];
+    for (const io of [0, 1]) {
+      const ref = `${id}:D${io}`;
+      if (!wiredRefs.has(ref)) continue;
+      const net = netOf.get(ref)!;
+      const other = 1 - b;
+      const otherRx = other * IO_PER_BOARD + 0;
+      const otherTx = other * IO_PER_BOARD + 1;
+      if (boards > 1 && net.ios.includes(io === 1 ? otherRx : otherTx)) continue; // a proper TX -> RX link
+      if (boards > 1 && net.ios.includes(io === 1 ? otherTx : otherRx)) {
+        issues.push({
+          level: 'warn',
+          text: `🔀 ${io === 1 ? 'TX' : 'RX'} is connected to ${io === 1 ? 'TX' : 'RX'}. Cross the wires: TX (pin 1) of one Arduino goes to RX (pin 0) of the other.`,
+          refs: net.refs.filter((r) => wiredRefs.has(r)),
+        });
+        continue;
+      }
+      const who = boards > 1 ? `${BOARD_NAMES[b]}'s pin ${io}` : `Pin ${io}`;
+      issues.push({ level: 'warn', text: `📡 ${who} is used by the Arduino to talk to the computer (Serial). Try a different pin.`, refs: [ref] });
     }
   }
 
@@ -215,11 +250,12 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
     for (const p of spec.pins.filter((p) => p.role === 'sig')) {
       const net = netOf.get(ref(p.name))!;
       if (p.i2c) {
+        const local = net.ios.map((io) => io % IO_PER_BOARD);
         const want = p.i2c === 'SDA' ? 18 : 19;
         const other = p.i2c === 'SDA' ? 19 : 18;
-        if (net.ios.includes(other)) {
+        if (local.includes(other)) {
           issues.push({ level: 'warn', text: `🔀 ${d.name}: SDA and SCL are swapped. SDA goes to A4 (SDA) and SCL goes to A5 (SCL).`, refs: [ref(p.name)] });
-        } else if (!net.ios.includes(want) && wiredRefs.has(ref(p.name))) {
+        } else if (!local.includes(want) && wiredRefs.has(ref(p.name))) {
           issues.push({
             level: 'warn',
             text: `📟 ${d.name}'s ${p.name} pin must go to ${p.i2c === 'SDA' ? 'A4' : 'A5'} (also labelled ${p.i2c}). That is where the Arduino's I2C ${p.i2c === 'SDA' ? 'data' : 'clock'} line is.`,
@@ -244,7 +280,7 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
             refs: [ref(p.name)],
           });
         }
-      } else if (p.analog && net.ios.every((io) => io < 14)) {
+      } else if (p.analog && net.ios.every((io) => io % IO_PER_BOARD < 14)) {
         issues.push({
           level: 'info',
           text: `📈 ${d.name}'s ${p.name} pin gives a range of values, but ${ioName(net.ios[0])} can only read HIGH or LOW. Use an analog pin (A0-A5) and analogRead().`,
@@ -269,5 +305,5 @@ export function analyzeCircuit(devices: DeviceInstance[], wires: Wire[]): Circui
     }
   }
 
-  return { netOf, nets, devices: deviceWiring, issues, shorted };
+  return { netOf, nets, devices: deviceWiring, issues, shorted, commonGround };
 }

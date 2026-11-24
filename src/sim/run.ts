@@ -1,5 +1,5 @@
 // Compile the current sketch on the local server and start the simulation.
-import { useStore, currentProject } from '../store';
+import { useStore, currentProject, currentMission } from '../store';
 import { friendly, type Diagnostic } from '../ui/friendly';
 import { startProgram, stopProgram } from './session';
 import { unlockAudio } from '../audio/sound';
@@ -25,17 +25,24 @@ export async function runCode(): Promise<void> {
   unlockAudio();
   if (useStore.getState().status === 'compiling') return;
   stopProgram();
-  const code = currentProject().code;
+  const project = currentProject();
+  const codes = currentMission().boards === 2 ? [project.code, project.code2 ?? ''] : [project.code];
   useStore.setState({ status: 'compiling', diagnostics: [], compileOutput: '' });
 
-  let data: CompileResponse;
+  const hexes: string[] = [];
+  let data: CompileResponse = { ok: false, diagnostics: [], output: '' };
+  let board = 0;
   try {
-    const res = await fetch('/api/compile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, board: 'uno' }),
-    });
-    data = await res.json();
+    for (; board < codes.length; board++) {
+      const res = await fetch('/api/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: codes[board], board: 'uno' }),
+      });
+      data = await res.json();
+      if (!data.ok || !data.hex) break;
+      hexes.push(data.hex);
+    }
   } catch {
     useStore.setState({
       status: 'stopped',
@@ -48,20 +55,21 @@ export async function runCode(): Promise<void> {
     return;
   }
 
-  const diagnostics = friendly(data.diagnostics ?? []);
-  if (!data.ok || !data.hex) {
+  const diagnostics = friendly(data.diagnostics ?? []).map((d) => ({ ...d, board }));
+  if (hexes.length < codes.length) {
     const missing = data.diagnostics?.some((d) => d.message === 'TOOLCHAIN_MISSING');
     useStore.setState({
       status: 'stopped',
       diagnostics,
       compileOutput: data.output ?? '',
       bottomTab: 'errors',
+      ...(codes.length > 1 ? { codeBoard: board as 0 | 1 } : {}),
       ...(missing ? { toolchain: 'missing' as const } : {}),
     });
     return;
   }
-  useStore.setState({ diagnostics, compileOutput: data.output ?? '', toolchain: 'ready' });
-  startProgram(data.hex);
+  useStore.setState({ diagnostics: diagnostics.map((d) => ({ ...d, board: codes.length - 1 })), compileOutput: data.output ?? '', toolchain: 'ready' });
+  startProgram(hexes);
   useStore.setState({ bottomTab: useStore.getState().bottomTab === 'errors' ? 'helper' : useStore.getState().bottomTab });
 }
 

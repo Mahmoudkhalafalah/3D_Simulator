@@ -48,6 +48,10 @@ export interface WorldSim {
 export type WorldSnapshot = WorldInputs & {
   daylight: number;
   serial: string;
+  /** Arduino B's Serial Monitor (two-Arduino missions) */
+  serial2: string;
+  /** Bytes sent between the two Arduinos over TX/RX */
+  link: { bytes: number; garbled: number; cleanStreak: number };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 };
@@ -85,6 +89,10 @@ export interface Mission {
   controls: string[];
   starterCode: string;
   solutionCode: string;
+  /** Two-Arduino missions: the second board (Arduino B) and its code */
+  boards?: 2;
+  starterCode2?: string;
+  solutionCode2?: string;
   solutionWires: [string, string][];
   hints: string[];
   /** Completed in order: each one unlocks after the previous one */

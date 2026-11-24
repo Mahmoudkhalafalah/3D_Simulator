@@ -2,7 +2,9 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { UNO_PINS, UNO_SIZE } from '../sim/board-uno';
-import { HEADER_H, PCB_T, UNO_POS, UNO_SCALE } from './layout';
+import { HEADER_H, PCB_T, UNO_SCALE, unoPos } from './layout';
+import { BOARD_IDS, BOARD_NAMES } from '../sim/board-uno';
+import { LabelSprite } from '../worlds/shared/models';
 import { unoTexture } from './textures';
 import { PinHit } from './PinHit';
 import { live } from '../sim/session';
@@ -41,10 +43,12 @@ function Led({ x, y, color, get }: { x: number; y: number; color: string; get: (
   );
 }
 
-export function UnoBoard({ problems }: { problems: Set<string> }) {
+export function UnoBoard({ problems, board = 0, boards = 1 }: { problems: Set<string>; board?: number; boards?: number }) {
   const tex = useMemo(() => unoTexture(), []);
+  const id = BOARD_IDS[board];
   return (
-    <group position={UNO_POS} scale={UNO_SCALE}>
+    <group position={unoPos(board, boards)} scale={UNO_SCALE}>
+      {boards > 1 && <LabelSprite text={`${board ? '🅱️' : '🅰️'} ${BOARD_NAMES[board]}`} position={[0, 1.4, -0.9]} width={3.2} />}
       {/* PCB */}
       <mesh position={[0, PCB_T / 2, 0]} castShadow receiveShadow>
         <boxGeometry args={[UNO_SIZE.w, PCB_T, UNO_SIZE.d]} />
@@ -131,8 +135,8 @@ export function UnoBoard({ problems }: { problems: Set<string> }) {
       })}
 
       {/* LEDs: L (pin 13), TX, ON */}
-      <Led x={24.5} y={44} color="#ffb020" get={() => live.boardL} />
-      <Led x={24.5} y={41.5} color="#ffb020" get={() => live.txFlash} />
+      <Led x={24.5} y={44} color="#ffb020" get={() => live.boardL[board] ?? 0} />
+      <Led x={24.5} y={41.5} color="#ffb020" get={() => live.txFlash[board] ?? 0} />
       <Led x={24.5} y={39} color="#ffb020" get={() => 0} />
       <Led x={61} y={35} color="#4ade80" get={() => (live.running ? 1 : 0)} />
 
@@ -144,10 +148,10 @@ export function UnoBoard({ problems }: { problems: Set<string> }) {
             <meshBasicMaterial color="#000" />
           </mesh>
           <PinHit
-            refId={`uno:${p.name}`}
+            refId={`${id}:${p.name}`}
             position={[p.x, PCB_T + HEADER_H + 0.1, p.z]}
             size={[0.23, 0.3, 0.32]}
-            problem={problems.has(`uno:${p.name}`)}
+            problem={problems.has(`${id}:${p.name}`)}
           />
         </group>
       ))}

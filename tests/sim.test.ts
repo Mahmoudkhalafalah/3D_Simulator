@@ -29,6 +29,8 @@ interface RunResult {
   compiled: boolean;
   output: string;
   serial: string;
+  /** Arduino B's Serial output (two-Arduino runs) */
+  serial2: string;
   done: boolean[];
   states: Record<string, DeviceState>;
   /** Device states sampled every simulated second */
@@ -37,7 +39,8 @@ interface RunResult {
 
 /** Run a sketch with some modules in a world for a while, playing a scenario. */
 async function runSketch(opts: {
-  code: string;
+  /** One sketch, or one per Arduino */
+  code: string | string[];
   devices: DeviceInstance[];
   wires: [string, string][];
   scenario: Scenario;
@@ -45,18 +48,23 @@ async function runSketch(opts: {
   inputs?: WorldInputs;
   mission?: Mission;
 }): Promise<RunResult> {
-  const res = await compileSketch(opts.code, 'uno');
-  const empty: RunResult = { compiled: false, output: res.output, serial: '', done: [], states: {}, history: [] };
-  if (!res.ok || !res.hex) return empty;
+  const codes = Array.isArray(opts.code) ? opts.code : [opts.code];
+  const hexes: string[] = [];
+  for (const code of codes) {
+    const res = await compileSketch(code, 'uno');
+    if (!res.ok || !res.hex) return { compiled: false, output: res.output, serial: '', serial2: '', done: [], states: {}, history: [] };
+    hexes.push(res.hex);
+  }
   const inputs = opts.inputs ?? defaultInputs();
   const sim: WorldSim = opts.sim ?? new SandboxSim();
   const { scenario, mission } = opts;
-  let serial = '';
-  const boot = (eeprom?: Uint8Array) => {
-    const e = new SimEngine(res.hex!, opts.devices, toWires(opts.wires), () => sim.sense(inputs), eeprom);
-    e.onSerial = (b) => (serial += String.fromCharCode(b));
+  const out = ['', ''];
+  const boot = (eeproms?: Uint8Array[]) => {
+    const e = new SimEngine(hexes, opts.devices, toWires(opts.wires), () => sim.sense(inputs), eeproms);
+    e.onSerial = (b, board) => (out[board] += String.fromCharCode(b));
     return e;
   };
+  const roms = (e: SimEngine) => e.runners.map((_, b) => e.eeprom(b));
   let engine = boot();
   const checker = new MissionChecker();
   const done = mission ? mission.objectives.map(() => false) : [];
@@ -70,22 +78,22 @@ async function runSketch(opts: {
     while (typed.length && typed[0][0] <= t) engine.runner.serialWrite(typed.shift()![1]);
     if (cycles.length && cycles[0] <= t) {
       cycles.shift();
-      engine = boot(engine.eeprom());
+      engine = boot(roms(engine));
     }
     sim.step(dt, inputs, engine.states);
-    for (const e of sim.drainEvents?.() ?? []) if (e === 'power') engine = boot(engine.eeprom());
+    for (const e of sim.drainEvents?.() ?? []) if (e === 'power') engine = boot(roms(engine));
     engine.step(dt);
     if (t >= nextSample) {
       nextSample += 1;
       history.push(JSON.parse(JSON.stringify(engine.states)));
     }
     if (mission) {
-      const world: WorldSnapshot = { ...inputs, daylight: daylight(inputs.hour), serial, ...sim.snapshot() };
+      const world: WorldSnapshot = { ...inputs, daylight: daylight(inputs.hour), serial: out[0], serial2: out[1], link: { ...engine.link }, ...sim.snapshot() };
       const idx = checker.step(mission, done, engine.states, world, dt);
       if (idx >= 0) done[idx] = true;
     }
   }
-  return { compiled: true, output: res.output, serial, done, states: engine.states, history };
+  return { compiled: true, output: '', serial: out[0], serial2: out[1], done, states: engine.states, history };
 }
 
 function missionInputs(mission: Mission): WorldInputs {
@@ -100,7 +108,7 @@ function missionInputs(mission: Mission): WorldInputs {
   };
 }
 
-function runMission(world: WorldDef, mission: Mission, code: string, scenario: Scenario) {
+function runMission(world: WorldDef, mission: Mission, code: string | string[], scenario: Scenario) {
   return runSketch({
     code,
     devices: world.devices.filter((d) => mission.devices.includes(d.id)),
@@ -116,10 +124,15 @@ async function missionTests(world: WorldDef) {
   console.log(`\n========== ${world.emoji}  ${world.title} ==========`);
   for (const mission of world.missions) {
     console.log(`\n${mission.emoji}  ${mission.title}`);
-    const starter = await compileSketch(mission.starterCode, 'uno');
-    check('starter code compiles', starter.ok, starter.ok ? '' : starter.output.split('\n').find((l) => l.includes('error')) ?? '');
+    const two = mission.boards === 2;
+    const starterCodes = two ? [mission.starterCode, mission.starterCode2 ?? ''] : mission.starterCode;
+    const solutionCodes = two ? [mission.solutionCode, mission.solutionCode2 ?? ''] : mission.solutionCode;
+    for (const [i, code] of (two ? [mission.starterCode, mission.starterCode2 ?? ''] : [mission.starterCode]).entries()) {
+      const starter = await compileSketch(code, 'uno');
+      check(`starter code compiles${two ? ` (Arduino ${'AB'[i]})` : ''}`, starter.ok, starter.ok ? '' : starter.output.split('\n').find((l) => l.includes('error')) ?? '');
+    }
 
-    const analysis = analyzeCircuit(world.devices.filter((d) => mission.devices.includes(d.id)), toWires(mission.solutionWires));
+    const analysis = analyzeCircuit(world.devices.filter((d) => mission.devices.includes(d.id)), toWires(mission.solutionWires), mission.boards ?? 1);
     const problems = analysis.issues.filter((i) => i.level !== 'info');
     if (mission.solutionWires.length && mission.objectives.length) {
       check('solution wiring has no problems', problems.length === 0, problems.map((p) => p.text).join(' | '));
@@ -134,14 +147,14 @@ async function missionTests(world: WorldDef) {
       continue;
     }
     const t0 = Date.now();
-    const sol = await runMission(world, mission, mission.solutionCode, scenario);
+    const sol = await runMission(world, mission, solutionCodes, scenario);
     check('solution compiles', sol.compiled, sol.compiled ? '' : sol.output.split('\n').find((l) => l.includes('error')) ?? sol.output);
     mission.objectives.forEach((o, i) => check(`solution: ${o.text}`, sol.done[i]));
-    const sample = sol.serial.trim().split('\n').slice(-2).join(' / ');
+    const sample = (sol.serial2 || sol.serial).trim().split('\n').slice(-2).join(' / ');
     if (sample) console.log(`     serial: ${sample.slice(0, 90)}`);
     console.log(`     simulated ${scenario.duration}s in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
-    const st = await runMission(world, mission, mission.starterCode, scenario);
+    const st = await runMission(world, mission, starterCodes, scenario);
     check('starter code does not already finish the mission', !st.done.every(Boolean));
   }
 }
@@ -257,6 +270,38 @@ void loop() {}`,
     scenario: { duration: 1.5, powerCycles: [0.5, 1.0] },
   });
   check('EEPROM survives power cycles', r.serial.replace(/\r/g, '').trim() === '1\n2\n3', JSON.stringify(r.serial));
+
+  // ----- two Arduinos -----
+  const sender = `void setup() { Serial.begin(9600); }
+void loop() { Serial.println("hi"); delay(100); }`;
+  const echo = (baud: number) => `void setup() { Serial.begin(${baud}); }
+void loop() { if (Serial.available()) Serial.write(Serial.read()); }`;
+  const link: [string, string][] = [['uno:D1', 'uno2:D0'], ['uno:GND1', 'uno2:GND1']];
+  r = await runSketch({ code: [sender, echo(9600)], devices: [], wires: link, scenario: { duration: 1 } });
+  check('Serial TX -> RX between two Arduinos', r.serial2.includes('hi\r\nhi'), JSON.stringify(r.serial2.slice(0, 40)));
+
+  r = await runSketch({ code: [sender, echo(4800)], devices: [], wires: link, scenario: { duration: 1 } });
+  check('Different baud rates give gibberish', r.serial2.length > 0 && !r.serial2.includes('hi'), JSON.stringify(r.serial2.slice(0, 20)));
+
+  r = await runSketch({ code: [sender, echo(9600)], devices: [], wires: [['uno:D1', 'uno2:D0']], scenario: { duration: 1 } });
+  check('No shared GND: the message does not arrive', r.serial2 === '', JSON.stringify(r.serial2.slice(0, 20)));
+
+  r = await runSketch({
+    code: [
+      `#include <SoftwareSerial.h>
+SoftwareSerial link(10, 11);
+void setup() { link.begin(9600); }
+void loop() { link.println("soft"); delay(100); }`,
+      `#include <SoftwareSerial.h>
+SoftwareSerial link(10, 11);
+void setup() { Serial.begin(9600); link.begin(9600); }
+void loop() { if (link.available()) Serial.write(link.read()); }`,
+    ],
+    devices: [],
+    wires: [['uno:D11', 'uno2:D10'], ['uno:GND1', 'uno2:GND1']],
+    scenario: { duration: 1 },
+  });
+  check('SoftwareSerial between two Arduinos (bit by bit)', r.serial2.includes('soft\r\nsoft'), JSON.stringify(r.serial2.slice(0, 40)));
 }
 
 async function circuitTests() {

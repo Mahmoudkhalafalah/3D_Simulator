@@ -37,6 +37,8 @@ export class LabSim implements WorldSim {
   changing = false;
   newCode = '';
   private prevKey: string | null = null;
+  /** Every key pressed on the keypad, newest last */
+  keyLog = '';
   // power
   powerCycles = 0;
   private events: string[] = [];
@@ -111,6 +113,7 @@ export class LabSim implements WorldSim {
 
   private stepKeypad(inputs: WorldInputs) {
     const k = inputs.keys.keypad ?? null;
+    if (k && k !== this.prevKey) this.keyLog = (this.keyLog + k).slice(-32);
     if (k && k !== this.prevKey) {
       if (k === 'A') {
         this.changing = true;
@@ -174,6 +177,7 @@ export class LabSim implements WorldSim {
       newCode: this.newCode,
       powerCycles: this.powerCycles,
       talking: this.time < this.talkUntil,
+      keyLog: this.keyLog,
     };
   }
 

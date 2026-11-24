@@ -59,6 +59,19 @@ export const LAB_SCENARIOS: Record<string, Scenario> = {
       typeKeys(w, t, 14.5, '5678#');
     },
   },
+  walkieTalkie: {
+    duration: 9.5,
+    script: (t, w) => {
+      w.values.hand = t < 3 ? 100 : t < 6 ? 15 : 70;
+    },
+  },
+  secretWire: {
+    duration: 6,
+    script: (t, w) => {
+      w.keys.keypad = null;
+      typeKeys(w, t, 3, '42A#');
+    },
+  },
   securityCamera: {
     duration: 6.5,
     script: (t, w) => {

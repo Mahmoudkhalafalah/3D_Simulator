@@ -141,7 +141,14 @@ export function SolutionModal() {
         </div>
         <p>Try to understand each line before you use it. There is more than one right answer!</p>
         <div className="solution-code">
+          {mission.boards === 2 && <h4>🅰️ Arduino A</h4>}
           <CodeMirror value={mission.solutionCode} editable={false} extensions={[cpp()]} basicSetup={{ foldGutter: false }} />
+          {mission.boards === 2 && (
+            <>
+              <h4>🅱️ Arduino B</h4>
+              <CodeMirror value={mission.solutionCode2 ?? ''} editable={false} extensions={[cpp()]} basicSetup={{ foldGutter: false }} />
+            </>
+          )}
         </div>
         <div className="modal-actions">
           <button className="ghost" onClick={close}>
@@ -151,7 +158,13 @@ export function SolutionModal() {
             className="primary"
             onClick={() => {
               if (confirm('Replace your code with this solution?')) {
+                useStore.setState({ codeBoard: 0 });
                 setCode(mission.solutionCode);
+                if (mission.boards === 2) {
+                  useStore.setState({ codeBoard: 1 });
+                  setCode(mission.solutionCode2 ?? '');
+                  useStore.setState({ codeBoard: 0 });
+                }
                 close();
               }
             }}

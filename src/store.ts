@@ -7,6 +7,8 @@ import type { FriendlyDiagnostic } from './ui/friendly';
 
 export interface Project {
   code: string;
+  /** Arduino B's code (two-Arduino missions) */
+  code2?: string;
   wires: Wire[];
 }
 
@@ -27,6 +29,11 @@ interface State {
   diagnostics: FriendlyDiagnostic[];
   compileOutput: string;
   serial: string;
+  /** Arduino B's Serial Monitor */
+  serial2: string;
+  /** Which board the code editor and Serial Monitor show (0 = A, 1 = B) */
+  codeBoard: 0 | 1;
+  serialBoard: 0 | 1;
   bottomTab: BottomTab;
   objectivesDone: boolean[];
   celebrate: boolean;
@@ -63,7 +70,7 @@ interface State {
   setValue: (key: string, value: number) => void;
   setKey: (deviceId: string, key: string | null) => void;
   openMission: (missionId: string) => void;
-  appendSerial: (text: string) => void;
+  appendSerial: (text: string, board?: number) => void;
 }
 
 export const projectKey = (worldId: string, missionId: string) => `${worldId}/${missionId}`;
@@ -83,6 +90,9 @@ export const useStore = create<State>()(
       diagnostics: [],
       compileOutput: '',
       serial: '',
+      serial2: '',
+      codeBoard: 0,
+      serialBoard: 0,
       bottomTab: 'helper',
       objectivesDone: [],
       celebrate: false,
@@ -105,10 +115,10 @@ export const useStore = create<State>()(
 
       set: (partial) => set(partial),
       setCode: (code) => {
-        const { worldId, missionId, projects } = get();
+        const { worldId, missionId, projects, codeBoard } = get();
         const key = projectKey(worldId, missionId);
         const current = projects[key] ?? defaultProject(getWorld(worldId), missionId);
-        set({ projects: { ...projects, [key]: { ...current, code } } });
+        set({ projects: { ...projects, [key]: codeBoard === 1 ? { ...current, code2: code } : { ...current, code } } });
       },
       setWires: (wires) => {
         const { worldId, missionId, projects } = get();
@@ -143,6 +153,9 @@ export const useStore = create<State>()(
           diagnostics: [],
           compileOutput: '',
           serial: '',
+          serial2: '',
+          codeBoard: 0,
+          serialBoard: 0,
           pending: null,
           selectedWire: null,
           celebrate: false,
@@ -150,9 +163,10 @@ export const useStore = create<State>()(
           bottomTab: 'helper',
         });
       },
-      appendSerial: (text) => {
-        const next = get().serial + text;
-        set({ serial: next.length > 20000 ? next.slice(-15000) : next });
+      appendSerial: (text, board = 0) => {
+        const key = board === 1 ? 'serial2' : 'serial';
+        const next = get()[key] + text;
+        set({ [key]: next.length > 20000 ? next.slice(-15000) : next } as Pick<State, 'serial'>);
       },
     }),
     {
@@ -173,7 +187,7 @@ export const useStore = create<State>()(
 
 export function defaultProject(world: WorldDef, missionId: string): Project {
   const mission = world.missions.find((m) => m.id === missionId) ?? world.missions[0];
-  return { code: mission.starterCode, wires: [] };
+  return { code: mission.starterCode, ...(mission.boards === 2 ? { code2: mission.starterCode2 ?? '' } : {}), wires: [] };
 }
 
 export function useWorld(): WorldDef {

@@ -229,6 +229,12 @@ export class AVRRunner {
     this.cpu.addClockEvent(callback, Math.max(1, Math.round(delayCycles)));
   }
 
+  /** One byte arriving on RX (pin 0), e.g. from another Arduino's TX */
+  serialWriteByte(byte: number): void {
+    this.rxQueue.push(byte & 0xff);
+    this.pumpRx();
+  }
+
   serialWrite(text: string): void {
     for (let i = 0; i < text.length; i++) this.rxQueue.push(text.charCodeAt(i) & 0xff);
     this.pumpRx();

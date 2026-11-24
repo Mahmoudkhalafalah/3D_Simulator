@@ -37,10 +37,10 @@ function Plug({ at }: { at: Vec3 }) {
   );
 }
 
-function WireMesh({ wire, placements }: { wire: Wire; placements: ModulePlacement[] }) {
+function WireMesh({ wire, placements, boards }: { wire: Wire; placements: ModulePlacement[]; boards: number }) {
   const selected = useStore((s) => s.selectedWire === wire.id);
-  const a = pinPosition(wire.a, placements);
-  const b = pinPosition(wire.b, placements);
+  const a = pinPosition(wire.a, placements, boards);
+  const b = pinPosition(wire.b, placements, boards);
   const key = `${a?.join()}|${b?.join()}`;
   const geometry = useMemo(() => (a && b ? new THREE.TubeGeometry(wireCurve(a, b), 64, 0.08, 8, false) : null), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!a || !b || !geometry) return null;
@@ -73,21 +73,21 @@ function WireMesh({ wire, placements }: { wire: Wire; placements: ModulePlacemen
   );
 }
 
-export function Wires({ wires, placements }: { wires: Wire[]; placements: ModulePlacement[] }) {
+export function Wires({ wires, placements, boards = 1 }: { wires: Wire[]; placements: ModulePlacement[]; boards?: number }) {
   return (
     <>
       {wires.map((w) => (
-        <WireMesh key={w.id} wire={w} placements={placements} />
+        <WireMesh key={w.id} wire={w} placements={placements} boards={boards} />
       ))}
     </>
   );
 }
 
 /** The "rubber band" wire that follows the mouse while you are connecting. */
-export function PendingWire({ placements, pointer }: { placements: ModulePlacement[]; pointer: React.RefObject<THREE.Vector3> }) {
+export function PendingWire({ placements, pointer, boards = 1 }: { placements: ModulePlacement[]; pointer: React.RefObject<THREE.Vector3>; boards?: number }) {
   const pending = useStore((s) => s.pending);
   const line = useRef<any>(null);
-  const start = pending ? pinPosition(pending, placements) : null;
+  const start = pending ? pinPosition(pending, placements, boards) : null;
   useFrame(() => {
     if (!line.current || !start || !pointer.current) return;
     const s = new THREE.Vector3(start[0], start[1] + PLUG_H, start[2]);

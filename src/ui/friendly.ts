@@ -8,6 +8,8 @@ export interface Diagnostic {
 }
 
 export interface FriendlyDiagnostic extends Diagnostic {
+  /** Which Arduino the code belongs to (two-Arduino missions) */
+  board?: number;
   friendly: string;
 }
 

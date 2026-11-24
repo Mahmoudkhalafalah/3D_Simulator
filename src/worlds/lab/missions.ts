@@ -55,6 +55,43 @@ byte rowPins[4] = {9, 8, 7, 6};   // R1-R4
 byte colPins[4] = {5, 4, 3, 2};   // C1-C4
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, 4, 4);`;
 
+const SLAVE_CODE = `// Arduino B (SLAVE): receive bytes over SPI and show them on the screen.
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+const int SS_PIN = 10;
+const int MOSI_PIN = 11;
+const int SCK_PIN = 12;
+
+byte receiveByte() {
+  byte b = 0;
+  for (int i = 0; i < 8; i++) {
+    while (digitalRead(SCK_PIN) == LOW) {}   // wait for the clock tick
+    b = (b << 1) | digitalRead(MOSI_PIN);    // read one bit
+    while (digitalRead(SCK_PIN) == HIGH) {}  // wait for the tick to end
+  }
+  return b;
+}
+
+void setup() {
+  pinMode(SS_PIN, INPUT);
+  pinMode(MOSI_PIN, INPUT);
+  pinMode(SCK_PIN, INPUT);
+  lcd.init();
+  lcd.backlight();
+  lcd.print("Slave ready:");
+  lcd.setCursor(0, 1);
+}
+
+void loop() {
+  if (digitalRead(SS_PIN) == LOW) {   // the master is talking to us
+    char c = receiveByte();
+    lcd.print(c);
+  }
+}
+`;
+
 const COMPUTER_VIEW = { position: [-3.4, 2.1, 1.7] as [number, number, number], target: [-3.6, 1.3, -2.6] as [number, number, number] };
 const VAULT_VIEW = { position: [1.6, 2.8, 4.6] as [number, number, number], target: [1.2, 1.4, -2.6] as [number, number, number] };
 const DOOR_VIEW = { position: [0.5, 4.5, 8] as [number, number, number], target: [3.2, 1.2, 0.6] as [number, number, number] };
@@ -1217,6 +1254,254 @@ void loop() {
       {
         text: 'Push the stick: look straight ahead',
         check: (c) => c.held(!!c.world.pressed.stick && (c.world.values['stick.x'] ?? 0.5) > 0.8 && Math.abs(c.dev('camPan').angle - 90) < 8 && Math.abs(c.dev('camTilt').angle - 90) < 8, 0.5),
+      },
+    ],
+  },
+  {
+    id: 'walkieTalkie',
+    title: 'Lab Walkie-Talkie (UART)',
+    emoji: '📡',
+    course: ['L3S1'],
+    boards: 2,
+    story: 'Two Arduinos, two jobs. Arduino A measures how close a hand is and SENDS the distance over a wire. Arduino B LISTENS and switches on the alarm lamp when something comes too close. They must agree on how fast to talk: the baud rate.',
+    steps: [
+      'Arduino A - distance sensor: V → 5V, T → pin 6, E → pin 7, G → GND.',
+      'The link: A\'s TX (pin 1) → B\'s RX (pin 0), and A\'s GND → B\'s GND (a shared ground!).',
+      'Arduino B - alarm lamp: S → pin 13, G → GND.',
+      'Run it. Does B understand A? Check B\'s Serial Monitor and the baud rates in both programs.',
+    ],
+    devices: ['handSensor', 'alarmLamp'],
+    controls: ['hand'],
+    setup: { values: { hand: 100 } },
+    view: { position: [3.4, 3.2, 6.4] as [number, number, number], target: [3.8, 1.4, 0.6] as [number, number, number] },
+    starterCode: `// Arduino A: measure the hand distance and SEND it to Arduino B.
+
+const int TRIG = 6;
+const int ECHO = 7;
+
+long readCm() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+  long us = pulseIn(ECHO, HIGH, 30000);
+  if (us == 0) return 999;   // nothing there
+  return us / 58;
+}
+
+void setup() {
+  Serial.begin(9600);        // talk at 9600 baud (bits per second)
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+}
+
+void loop() {
+  long cm = readCm();
+  Serial.println(cm);        // goes out of TX (pin 1) to Arduino B
+  delay(200);
+}
+`,
+    starterCode2: `// Arduino B: LISTEN to Arduino A and switch on the alarm lamp when something is close.
+
+const int LAMP = 13;
+
+void setup() {
+  Serial.begin(4800);        // hmm... is this the same speed as Arduino A?
+  pinMode(LAMP, OUTPUT);
+}
+
+void loop() {
+  if (Serial.available() > 0) {
+    long cm = Serial.parseInt();   // read the number Arduino A sent
+    Serial.print("Got: ");
+    Serial.println(cm);
+    // TODO: lamp ON when cm is less than 30, OFF otherwise
+  }
+}
+`,
+    solutionCode: `// Arduino A: measure the hand distance and SEND it to Arduino B.
+
+const int TRIG = 6;
+const int ECHO = 7;
+
+long readCm() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+  long us = pulseIn(ECHO, HIGH, 30000);
+  if (us == 0) return 999;   // nothing there
+  return us / 58;
+}
+
+void setup() {
+  Serial.begin(9600);        // talk at 9600 baud (bits per second)
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+}
+
+void loop() {
+  long cm = readCm();
+  Serial.println(cm);        // goes out of TX (pin 1) to Arduino B
+  delay(200);
+}
+`,
+    solutionCode2: `// Arduino B: LISTEN to Arduino A and switch on the alarm lamp when something is close.
+
+const int LAMP = 13;
+
+void setup() {
+  Serial.begin(9600);        // the SAME speed as Arduino A
+  pinMode(LAMP, OUTPUT);
+}
+
+void loop() {
+  if (Serial.available() > 0) {
+    long cm = Serial.parseInt();   // read the number Arduino A sent
+    if (cm > 0) {
+      Serial.print("Got: ");
+      Serial.println(cm);
+      if (cm < 30) {
+        digitalWrite(LAMP, HIGH);  // too close: alarm!
+      } else {
+        digitalWrite(LAMP, LOW);
+      }
+    }
+  }
+}
+`,
+    solutionWires: [
+      ['handSensor:VCC', 'uno:5V'],
+      ['handSensor:TRIG', 'uno:D6'],
+      ['handSensor:ECHO', 'uno:D7'],
+      ['handSensor:GND', 'uno:GND1'],
+      ['uno:D1', 'uno2:D0'],
+      ['uno:GND2', 'uno2:GND1'],
+      ['alarmLamp:SIG', 'uno2:D13'],
+      ['alarmLamp:GND', 'uno2:GND2'],
+    ],
+    hints: [
+      'UART has no shared clock: both sides just agree in advance how many bits per second to send. That number is the baud rate.',
+      'If the baud rates are different, Arduino B reads the bits at the wrong moments and gets gibberish. Look at Serial.begin() in both programs!',
+      'TX (transmit) of one board always goes to RX (receive) of the other. And the grounds must be connected, so both boards agree what 0 volts is.',
+    ],
+    objectives: [
+      { text: 'Both Arduinos talk at the same speed (baud rate)', check: (c) => c.world.link.cleanStreak >= 20 },
+      { text: 'Hand close (under 30 cm): Arduino B lights the lamp', check: (c) => c.held((c.world.values.hand ?? 100) < 30 && c.dev('alarmLamp').brightness > 0.5, 0.5) },
+      { text: 'Hand away: the lamp goes off', check: (c) => c.held((c.world.values.hand ?? 100) > 50 && c.dev('alarmLamp').brightness < 0.1, 1) },
+    ],
+  },
+  {
+    id: 'secretWire',
+    title: 'Secret Wire (SPI)',
+    emoji: '🔌',
+    course: ['L3S3'],
+    boards: 2,
+    story: 'Arduino A has the keypad, Arduino B has the screen. Connect them with SPI: a clock wire that says "read the bit NOW", a data wire, and a select wire that says "I am talking to you". You will send every bit by hand!',
+    steps: [
+      'Arduino A (master) - keypad: R1-R4 → pins 9, 8, 7, 6 and C1-C4 → pins 5, 4, 3, 2.',
+      'Arduino B (slave) - I2C screen: G → GND, V → 5V, SDA → A4, SCL → A5.',
+      'The SPI wires, A → B: pin 10 → pin 10 (SS, select), 11 → 11 (MOSI, data), 12 → 12 (SCK, clock), and GND → GND.',
+      'The slave program is ready. Finish sendByte() on the master: set the data bit, then tick the clock.',
+      'Type on the keypad below the world and watch the slave\'s screen.',
+    ],
+    devices: ['keypad', 'doorScreen'],
+    controls: ['keypad'],
+    view: { position: [1.6, 2.8, 4.6] as [number, number, number], target: [1.2, 1.4, -2.6] as [number, number, number] },
+    starterCode: `// Arduino A (MASTER): read the keypad and send each key over SPI, one bit at a time.
+#include <Keypad.h>
+
+${KEYPAD_SETUP}
+
+const int SS_PIN = 10;     // Slave Select: "it is you I am talking to"
+const int MOSI_PIN = 11;   // Master Out, Slave In: the data
+const int SCK_PIN = 12;    // the clock: "read the bit now!"
+
+void sendByte(byte b) {
+  digitalWrite(SS_PIN, LOW);              // wake up the slave
+  for (int i = 7; i >= 0; i--) {          // the biggest bit first
+    digitalWrite(MOSI_PIN, bitRead(b, i));
+    // TODO: tick the clock: wait 100 us, SCK HIGH, wait 100 us, SCK LOW
+  }
+  digitalWrite(SS_PIN, HIGH);             // done talking
+}
+
+void setup() {
+  pinMode(SS_PIN, OUTPUT);
+  pinMode(MOSI_PIN, OUTPUT);
+  pinMode(SCK_PIN, OUTPUT);
+  digitalWrite(SS_PIN, HIGH);
+  digitalWrite(SCK_PIN, LOW);
+}
+
+void loop() {
+  char key = keypad.getKey();
+  if (key) {
+    sendByte(key);
+  }
+}
+`,
+    starterCode2: SLAVE_CODE,
+    solutionCode: `// Arduino A (MASTER): read the keypad and send each key over SPI, one bit at a time.
+#include <Keypad.h>
+
+${KEYPAD_SETUP}
+
+const int SS_PIN = 10;     // Slave Select: "it is you I am talking to"
+const int MOSI_PIN = 11;   // Master Out, Slave In: the data
+const int SCK_PIN = 12;    // the clock: "read the bit now!"
+
+void sendByte(byte b) {
+  digitalWrite(SS_PIN, LOW);              // wake up the slave
+  for (int i = 7; i >= 0; i--) {          // the biggest bit first
+    digitalWrite(MOSI_PIN, bitRead(b, i));
+    delayMicroseconds(100);
+    digitalWrite(SCK_PIN, HIGH);          // tick: the slave reads the bit now
+    delayMicroseconds(100);
+    digitalWrite(SCK_PIN, LOW);
+  }
+  digitalWrite(SS_PIN, HIGH);             // done talking
+}
+
+void setup() {
+  pinMode(SS_PIN, OUTPUT);
+  pinMode(MOSI_PIN, OUTPUT);
+  pinMode(SCK_PIN, OUTPUT);
+  digitalWrite(SS_PIN, HIGH);
+  digitalWrite(SCK_PIN, LOW);
+}
+
+void loop() {
+  char key = keypad.getKey();
+  if (key) {
+    sendByte(key);
+  }
+}
+`,
+    solutionCode2: SLAVE_CODE,
+    solutionWires: [
+      ...KEYPAD_WIRES,
+      ['doorScreen:GND', 'uno2:GND1'],
+      ['doorScreen:VCC', 'uno2:5V'],
+      ['doorScreen:SDA', 'uno2:A4'],
+      ['doorScreen:SCL', 'uno2:A5'],
+      ['uno:D10', 'uno2:D10'],
+      ['uno:D11', 'uno2:D11'],
+      ['uno:D12', 'uno2:D12'],
+      ['uno:GND1', 'uno2:GND2'],
+    ],
+    hints: [
+      'SPI is synchronous: the master owns the clock. Every time SCK goes HIGH, the slave reads one bit from MOSI.',
+      'A byte is 8 bits. The loop sends bit 7 first and bit 0 last, and the slave builds the byte in the same order.',
+      'Why the delays? The slave checks the pins in a loop. Give it time to notice every tick.',
+    ],
+    objectives: [
+      { text: 'The slave\'s screen is ready', check: (c) => c.held(lcdRow(c, 'doorScreen', 0).trim().length > 0, 0.5) },
+      {
+        text: 'Keys typed on the master appear on the slave\'s screen',
+        check: (c) => c.world.keyLog.length >= 3 && lcdRow(c, 'doorScreen', 1).trimEnd().endsWith(c.world.keyLog.slice(-3)),
       },
     ],
   },

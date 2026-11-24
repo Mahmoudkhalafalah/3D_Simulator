@@ -16,9 +16,9 @@ export { daylight };
 export const live = {
   states: {} as Record<string, DeviceState>,
   running: false,
-  /** Brightness of the Arduino's built-in "L" LED (pin 13) */
-  boardL: 0,
-  txFlash: 0,
+  /** Brightness of each Arduino's built-in "L" LED (pin 13), and its TX light */
+  boardL: [0, 0],
+  txFlash: [0, 0],
   time: 0,
   /** Seconds the current program has been running (module timestamps such as `ping` use this clock) */
   engineTime: 0,
@@ -32,8 +32,8 @@ export const live = {
 };
 
 let engine: SimEngine | null = null;
-let lastHex: string | null = null;
-let serialBuffer = '';
+let lastHexes: string[] | null = null;
+const serialBuffers = ['', ''];
 let lastWires: Wire[] | null = null;
 const checker = new MissionChecker();
 let speedAcc = { wanted: 0, ran: 0, t: 0 };
@@ -57,18 +57,24 @@ function loadEeprom(key: string): Uint8Array | undefined {
   }
 }
 
+const boardKey = (board: number) => {
+  const s = useStore.getState();
+  return projectKey(s.worldId, s.missionId) + (board ? ':B' : '');
+};
+
 function saveEeprom(): void {
   if (!engine) return;
-  const s = useStore.getState();
-  const key = projectKey(s.worldId, s.missionId);
-  const bytes = engine.eeprom();
-  eeproms.set(key, bytes);
-  if (bytes.every((b) => b === 0xff)) return;
-  try {
-    localStorage.setItem(eepromKey(key), btoa(String.fromCharCode(...bytes)));
-  } catch {
-    /* storage full or blocked: keep it in memory only */
-  }
+  engine.runners.forEach((_, board) => {
+    const key = boardKey(board);
+    const bytes = engine!.eeprom(board);
+    eeproms.set(key, bytes);
+    if (bytes.every((b) => b === 0xff)) return;
+    try {
+      localStorage.setItem(eepromKey(key), btoa(String.fromCharCode(...bytes)));
+    } catch {
+      /* storage full or blocked: keep it in memory only */
+    }
+  });
 }
 
 // ---------- the world ----------
@@ -90,27 +96,31 @@ function sense(): SenseMap {
 }
 
 // ---------- the program ----------
-export function startProgram(hex: string): void {
-  lastHex = hex;
+/** Start the compiled program(s): one hex per Arduino. */
+export function startProgram(hexes: string[]): void {
+  lastHexes = hexes;
   const s = useStore.getState();
   const world = getWorld(s.worldId);
   const mission = currentMission();
   const project = currentProject();
   const previous = live.states;
   if (engine) saveEeprom();
-  const eeprom = loadEeprom(projectKey(s.worldId, s.missionId));
-  engine = new SimEngine(hex, missionDevices(world, mission), project.wires, sense, eeprom);
+  const roms = hexes.map((_, b) => loadEeprom(boardKey(b)));
+  engine = new SimEngine(hexes, missionDevices(world, mission), project.wires, sense, roms);
   for (const [id, st] of Object.entries(engine.states)) st.angle = previous[id]?.angle ?? 0;
-  engine.onSerial = (b) => {
-    serialBuffer += String.fromCharCode(b);
-    live.txFlash = 1;
+  engine.onSerial = (byte, board) => {
+    serialBuffers[board] += String.fromCharCode(byte);
+    live.txFlash[board] = 1;
   };
   lastWires = project.wires;
   checker.reset();
   live.running = true;
   live.states = engine.states;
-  useStore.setState({ status: 'running', runningCode: project.code, serial: '' });
+  useStore.setState({ status: 'running', runningCode: runningKey(project), serial: '', serial2: '' });
 }
+
+/** What is running, to warn when the editor has changed since Run */
+export const runningKey = (p: { code: string; code2?: string }) => p.code + (p.code2 !== undefined ? '\u0000' + p.code2 : '');
 
 export function stopProgram(): void {
   saveEeprom();
@@ -119,13 +129,13 @@ export function stopProgram(): void {
   const off: Record<string, DeviceState> = {};
   for (const [id, st] of Object.entries(live.states)) off[id] = { ...emptyState(), angle: st.angle };
   live.states = off;
-  live.boardL = 0;
+  live.boardL = [0, 0];
   silenceAll();
   useStore.setState({ status: 'stopped', runningCode: null });
 }
 
-export function serialSend(text: string): void {
-  engine?.runner.serialWrite(text);
+export function serialSend(text: string, board = 0): void {
+  engine?.runners[board]?.serialWrite(text);
 }
 
 function updateWorld(dt: number): void {
@@ -139,17 +149,18 @@ function updateWorld(dt: number): void {
   for (const e of live.sim!.drainEvents?.() ?? []) {
     if (e === 'bump') playBump();
     else if (e === 'pop') playPop();
-    else if (e === 'power' && engine && lastHex) {
+    else if (e === 'power' && engine && lastHexes) {
       // Switch the board off and on: the program starts again, EEPROM keeps its contents
       click();
-      startProgram(lastHex);
+      startProgram(lastHexes);
     }
   }
 }
 
 function snapshot(): WorldSnapshot {
   const s = useStore.getState();
-  return { ...currentInputs(), daylight: daylight(s.hour), serial: s.serial, ...live.snap };
+  const link = engine ? { ...engine.link } : { bytes: 0, garbled: 0, cleanStreak: 0 };
+  return { ...currentInputs(), daylight: daylight(s.hour), serial: s.serial, serial2: s.serial2, link, ...live.snap };
 }
 
 function checkMission(dt: number): void {
@@ -214,14 +225,15 @@ function frame(dt: number): void {
     }
     live.states = engine.states;
     live.engineTime = engine.time;
-    live.boardL = engine.pin(13).duty;
-    if (serialBuffer) {
-      useStore.getState().appendSerial(serialBuffer);
-      serialBuffer = '';
-    }
+    live.boardL = engine.runners.map((_, b) => engine!.pin(b * 20 + 13).duty);
+    serialBuffers.forEach((text, b) => {
+      if (!text) return;
+      useStore.getState().appendSerial(text, b);
+      serialBuffers[b] = '';
+    });
     checkMission(dt);
   }
-  live.txFlash = Math.max(0, live.txFlash - dt * 8);
+  live.txFlash = live.txFlash.map((v) => Math.max(0, v - dt * 8));
   updateSounds();
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -11,7 +11,7 @@ import { PendingWire, Wires } from './Wires';
 import { benchDepth, benchWidth, layoutModules } from './layout';
 import { matTexture } from './textures';
 import { addWire, clearWires, freeRailHole, removeWire } from './wiring';
-import { UNO_PINS } from '../sim/board-uno';
+import { BOARD_IDS, BOARD_NAMES, UNO_PINS } from '../sim/board-uno';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { FocusButton } from '../ui/FocusButton';
 
@@ -44,8 +44,11 @@ function CameraRig({ depth, width, missionId }: { depth: number; width: number; 
 function ConnectMenu() {
   const pending = useStore((s) => s.pending);
   const world = useWorld();
+  const boards = useMission().boards ?? 1;
+  const [target, setTarget] = useState(0);
   if (!pending) return null;
-  const fromBoard = pending.startsWith('uno:') || pending.startsWith('rail:');
+  const fromBoard = pending.startsWith('uno:') || pending.startsWith('uno2:') || pending.startsWith('rail:');
+  const b = BOARD_IDS[boards > 1 ? target : 0];
   const connect = (to: string) => {
     addWire(pending, to);
     useStore.setState({ pending: null });
@@ -60,9 +63,18 @@ function ConnectMenu() {
       </div>
       {!fromBoard && (
         <>
+          {boards > 1 && (
+            <div className="connect-row">
+              {BOARD_NAMES.map((name, i) => (
+                <button key={name} className={target === i ? 'board on' : 'board'} onClick={() => setTarget(i)}>
+                  {i ? '🅱️' : '🅰️'} {name}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="connect-row">
             {digital.map((p) => (
-              <button key={p.name} onClick={() => connect(`uno:${p.name}`)} title={p.label}>
+              <button key={p.name} onClick={() => connect(`${b}:${p.name}`)} title={p.label}>
                 {[3, 5, 6, 9, 10, 11].includes(p.io!) ? '~' : ''}
                 {p.io}
               </button>
@@ -70,13 +82,13 @@ function ConnectMenu() {
           </div>
           <div className="connect-row">
             {analog.map((p) => (
-              <button key={p.name} className="analog" onClick={() => connect(`uno:${p.name}`)}>
+              <button key={p.name} className="analog" onClick={() => connect(`${b}:${p.name}`)}>
                 {p.name}
               </button>
             ))}
-            <button className="power" onClick={() => connect('uno:5V')}>5V</button>
-            <button className="power" onClick={() => connect('uno:3V3')}>3.3V</button>
-            <button className="gnd" onClick={() => connect('uno:GND1')}>GND</button>
+            <button className="power" onClick={() => connect(`${b}:5V`)}>5V</button>
+            <button className="power" onClick={() => connect(`${b}:3V3`)}>3.3V</button>
+            <button className="gnd" onClick={() => connect(`${b}:GND1`)}>GND</button>
             <button className="power" onClick={() => connect(freeRailHole('P'))}>+ rail</button>
             <button className="gnd" onClick={() => connect(freeRailHole('N'))}>- rail</button>
           </div>
@@ -95,9 +107,10 @@ export function Bench() {
   const project = useProject();
   const devices = useMemo(() => missionDevices(world, mission), [world, mission]);
   const placements = useMemo(() => layoutModules(devices), [devices]);
+  const boards = mission.boards ?? 1;
   const depth = benchDepth(placements);
-  const width = benchWidth(placements);
-  const analysis = useMemo(() => analyzeCircuit(devices, project.wires), [devices, project.wires]);
+  const width = benchWidth(placements, boards);
+  const analysis = useMemo(() => analyzeCircuit(devices, project.wires, boards), [devices, project.wires, boards]);
   const problems = useMemo(
     () => new Set(analysis.issues.filter((i) => i.level !== 'info').flatMap((i) => i.refs)),
     [analysis],
@@ -151,13 +164,15 @@ export function Bench() {
           <planeGeometry args={[160, 160]} />
           <meshStandardMaterial map={mat} roughness={0.95} />
         </mesh>
-        <UnoBoard problems={problems} />
+        {Array.from({ length: boards }, (_, b) => (
+          <UnoBoard key={b} problems={problems} board={b} boards={boards} />
+        ))}
         <Rail problems={problems} />
         {placements.map((p) => (
           <ModuleView key={p.device.id} placement={p} problems={problems} />
         ))}
-        <Wires wires={project.wires} placements={placements} />
-        <PendingWire placements={placements} pointer={pointer} />
+        <Wires wires={project.wires} placements={placements} boards={boards} />
+        <PendingWire placements={placements} pointer={pointer} boards={boards} />
         <OrbitControls makeDefault maxPolarAngle={1.35} minDistance={6} maxDistance={90} enableDamping dampingFactor={0.12} />
         <CameraRig depth={depth} width={width} missionId={mission.id} />
       </Canvas>

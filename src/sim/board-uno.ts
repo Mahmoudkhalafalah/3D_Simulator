@@ -73,6 +73,15 @@ export const UNO_PINS: BoardPin[] = [
 
 export const UNO_SIZE = { w: W / 10, d: H / 10 };
 
+/** Board part ids on the bench: 'uno' is Arduino A, 'uno2' is Arduino B (two-Arduino missions). */
+export const BOARD_IDS = ['uno', 'uno2'];
+export const BOARD_NAMES = ['Arduino A', 'Arduino B'];
+/** Each board's IO pins get their own range of numbers: board 0 uses 0-19, board 1 uses 20-39. */
+export const IO_PER_BOARD = 20;
+export const boardOfRef = (part: string) => BOARD_IDS.indexOf(part);
+
 export function ioName(io: number): string {
-  return io >= 14 ? `A${io - 14}` : `D${io}`;
+  const local = io % IO_PER_BOARD;
+  const name = local >= 14 ? `A${local - 14}` : `D${local}`;
+  return io >= IO_PER_BOARD ? `${name} on Arduino B` : name;
 }

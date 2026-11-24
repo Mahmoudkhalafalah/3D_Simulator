@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { runningKey } from '../sim/session';
 import CodeMirror, { EditorView, type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { cpp } from '@codemirror/lang-cpp';
 import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from '@codemirror/lint';
 import { autocompletion, type CompletionContext, type Completion } from '@codemirror/autocomplete';
-import { useProject, useStore } from '../store';
+import { useProject, useStore, useMission } from '../store';
 
 const ARDUINO: Completion[] = [
   { label: 'pinMode', type: 'function', apply: 'pinMode(pin, OUTPUT);', info: 'Set a pin to OUTPUT (send) or INPUT (listen).' },
@@ -55,6 +56,11 @@ const theme = EditorView.theme({
 
 export function CodePanel({ jumpRef }: { jumpRef: React.MutableRefObject<((line: number) => void) | null> }) {
   const project = useProject();
+  const mission = useMission();
+  const codeBoard = useStore((s) => s.codeBoard);
+  const two = mission.boards === 2;
+  const board = two ? codeBoard : 0;
+  const code = board === 1 ? (project.code2 ?? '') : project.code;
   const setCode = useStore((s) => s.setCode);
   const diagnostics = useStore((s) => s.diagnostics);
   const status = useStore((s) => s.status);
@@ -66,7 +72,7 @@ export function CodePanel({ jumpRef }: { jumpRef: React.MutableRefObject<((line:
     const view = cm.current?.view;
     if (!view) return;
     const doc = view.state.doc;
-    const diags: CmDiagnostic[] = diagnostics.map((d) => {
+    const diags: CmDiagnostic[] = diagnostics.filter((d) => (d.board ?? 0) === board).map((d) => {
       const line = doc.line(Math.min(Math.max(1, d.line), doc.lines));
       return {
         from: Math.min(line.to, line.from + Math.max(0, d.column - 1)),
@@ -76,7 +82,7 @@ export function CodePanel({ jumpRef }: { jumpRef: React.MutableRefObject<((line:
       };
     });
     view.dispatch(setDiagnostics(view.state, diags));
-  }, [diagnostics]);
+  }, [diagnostics, board]);
 
   useEffect(() => {
     jumpRef.current = (lineNo: number) => {
@@ -88,18 +94,29 @@ export function CodePanel({ jumpRef }: { jumpRef: React.MutableRefObject<((line:
     };
   }, [jumpRef]);
 
-  const changed = status === 'running' && runningCode !== null && runningCode !== project.code;
+  const changed = status === 'running' && runningCode !== null && runningCode !== runningKey(project);
 
   return (
     <div className="card code-card">
       <div className="card-head">
-        <span>💻 Code</span>
+        {two ? (
+          <span className="board-tabs">
+            {(['🅰️ Arduino A', '🅱️ Arduino B'] as const).map((label, b) => (
+              <button key={b} className={board === b ? 'active' : ''} onClick={() => useStore.setState({ codeBoard: b as 0 | 1 })}>
+                {label}
+              </button>
+            ))}
+          </span>
+        ) : (
+          <span>💻 Code</span>
+        )}
         {changed && <span className="badge warn">✏️ Code changed - press Run to upload it</span>}
       </div>
       <div className="code-wrap">
         <CodeMirror
           ref={cm}
-          value={project.code}
+          key={board}
+          value={code}
           height="100%"
           extensions={extensions}
           onChange={(v) => setCode(v)}
