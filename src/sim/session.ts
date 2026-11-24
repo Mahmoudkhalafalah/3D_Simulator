@@ -111,6 +111,7 @@ export function startProgram(hexes: string[]): void {
   };
   lastWires = project.wires;
   checker.reset();
+  live.sim?.onStart?.();
   live.running = true;
   live.states = engine.states;
   useStore.setState({ status: 'running', runningCode: runningKey(project), serial: '', serial2: '' });
@@ -200,20 +201,27 @@ function updateSounds(): void {
 
 function frame(dt: number): void {
   live.time += dt;
-  updateWorld(dt);
-
+  // While a program runs, the world moves by the Arduino's own clock. On a slow computer
+  // the chip may run below real time; the world then slows down with it, so a robot that
+  // turns for delay(300) turns the same angle on every computer.
+  let ran = 0;
   if (engine) {
     const wires = currentProject().wires;
     if (wires !== lastWires) {
       engine.rewire(wires);
       lastWires = wires;
     }
-    const wanted = dt * CLOCK_HZ;
     const budget = 12 * cyclesPerMs;
     const t0 = performance.now();
-    const ran = engine.step(dt, Math.max(50000, budget));
+    ran = engine.step(dt, Math.max(50000, budget));
     const ms = performance.now() - t0;
     if (ms > 0.5) cyclesPerMs = cyclesPerMs * 0.9 + (ran / ms) * 0.1;
+  }
+  const worldDt = engine ? ran / CLOCK_HZ : dt;
+  updateWorld(worldDt);
+
+  if (engine) {
+    const wanted = dt * CLOCK_HZ;
     speedAcc.wanted += wanted;
     speedAcc.ran += ran;
     speedAcc.t += dt;
@@ -230,7 +238,7 @@ function frame(dt: number): void {
       useStore.getState().appendSerial(text, b);
       serialBuffers[b] = '';
     });
-    checkMission(dt);
+    checkMission(worldDt);
   }
   live.txFlash = live.txFlash.map((v) => Math.max(0, v - dt * 8));
   updateSounds();

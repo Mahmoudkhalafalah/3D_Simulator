@@ -377,3 +377,27 @@ export function SoundBody({ device }: { device: DeviceInstance }) {
     </group>
   );
 }
+
+/** TCRT5000 line sensor: an infrared LED and a photo-transistor looking down at the floor. */
+export function LineBody({ device }: { device: DeviceInstance }) {
+  return (
+    <group position={[0, TOP, 0]}>
+      <mesh position={[0, 0.22, 1.0]} castShadow>
+        <boxGeometry args={[1.1, 0.44, 0.6]} />
+        <meshStandardMaterial color="#111827" />
+      </mesh>
+      {[-0.26, 0.26].map((x, i) => (
+        <mesh key={x} position={[x, 0.46, 1.0]}>
+          <cylinderGeometry args={[0.17, 0.17, 0.08, 16]} />
+          <meshStandardMaterial color={i ? '#1f2937' : '#93c5fd'} />
+        </mesh>
+      ))}
+      <mesh position={[0, 0.16, -0.25]}>
+        <boxGeometry args={[0.5, 0.32, 0.5]} />
+        <meshStandardMaterial color="#2563eb" />
+      </mesh>
+      {/* The indicator LED lights when the floor reflects (white), and goes dark over the black line */}
+      <StatusLed position={[0.75, 0.05, -0.75]} color="#22c55e" get={() => state(device.id).powered && !state(device.id).on} />
+    </group>
+  );
+}

@@ -16,6 +16,7 @@ import {
   JoystickBody,
   KeypadBody,
   LcdBody,
+  LineBody,
   MotorBody,
   RgbLedBody,
   SevenSegBody,
@@ -446,6 +447,8 @@ function Body({ device }: { device: DeviceInstance }) {
       return <JoystickBody device={device} />;
     case 'sound':
       return <SoundBody device={device} />;
+    case 'line':
+      return <LineBody device={device} />;
   }
 }
 

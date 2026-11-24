@@ -169,6 +169,16 @@ function Control({ def }: { def: ControlDef }) {
           {def.readout && <Readout get={() => def.readout!(live.snap)} />}
         </div>
       );
+    case 'toggle': {
+      const on = (s.values[def.key] ?? 0) === 1;
+      return (
+        <div className="ctrl">
+          <button className={`ctrl-btn toggle ${on ? 'on' : ''}`} aria-pressed={on} onClick={() => s.setValue(def.key, on ? 0 : 1)}>
+            {def.emoji} {def.label}
+          </button>
+        </div>
+      );
+    }
     case 'joystick':
       return (
         <div className="ctrl tall" title={def.title}>

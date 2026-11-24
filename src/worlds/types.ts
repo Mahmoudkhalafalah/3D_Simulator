@@ -42,6 +42,8 @@ export interface WorldSim {
   action(name: string, arg?: number): void;
   /** Sound effects that happened since the last call ('bump', 'splash', ...) */
   drainEvents?(): string[];
+  /** A program was just started (Run): e.g. put the robot back on its start spot */
+  onStart?(): void;
 }
 
 /** What objectives can look at: the inputs, the time of day and the world's own values. */
@@ -123,6 +125,8 @@ export type ControlDef =
   | { type: 'action'; emoji: string; label: string; action: string; arg?: number; busy?: (snap: Snap) => string | null }
   | { type: 'hold'; emoji: string; title: string; buttons: { label: string; action: string; arg: number }[]; readout?: (snap: Snap) => string }
   | { type: 'joystick'; device: string; title: string }
+  /** An on/off switch kept in inputs.values[key] (1 = on), e.g. a camera that follows the robot */
+  | { type: 'toggle'; emoji: string; label: string; key: string }
   | { type: 'keypad'; device: string; title: string };
 
 export interface WorldDef {

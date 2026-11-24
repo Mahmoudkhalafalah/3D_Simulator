@@ -69,6 +69,8 @@ export interface SenseMap {
   key(id: string): string | null;
   /** Joystick position 0..1 (0.5 = centre). x: right is 1, y: up is 1 */
   axis(id: string, axis: 'x' | 'y'): number;
+  /** A line sensor is above a black line (true) or the white floor (false) */
+  line(id: string): boolean;
 }
 
 export interface WorldSense extends SenseMap {
@@ -433,7 +435,8 @@ export function createLogic(type: DeviceType): DeviceLogic {
           const dir = fwd === back ? 0 : fwd ? 1 : -1;
           const power = ctx.powered && ctx.supply >= 4.5 && en ? en.duty : 0;
           const target = power < 0.15 ? 0 : dir * power;
-          state.speed += (target - state.speed) * Math.min(1, dt * 3);
+          // A small geared DC motor reaches full speed (or stops) in about a third of a second
+          state.speed += (target - state.speed) * Math.min(1, dt * 8);
           if (Math.abs(state.speed) < 0.005) state.speed = 0;
           state.on = state.speed !== 0;
         },
@@ -483,6 +486,18 @@ export function createLogic(type: DeviceType): DeviceLogic {
           ctx.drive('VRx', ctx.powered ? ctx.supply * x : null);
           ctx.drive('VRy', ctx.powered ? ctx.supply * y : null);
           ctx.drive('SW', ctx.powered && state.on ? 0 : null);
+        },
+      };
+
+    case 'line':
+      // TCRT5000: the white floor reflects the infrared light (OUT LOW, indicator LED on);
+      // a black line swallows it (OUT HIGH).
+      return {
+        state,
+        update(ctx) {
+          state.powered = ctx.powered;
+          state.on = ctx.powered && ctx.world.line(ctx.id);
+          ctx.drive('OUT', ctx.powered ? (state.on ? ctx.supply : 0) : null);
         },
       };
 

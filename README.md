@@ -3,7 +3,8 @@
 A 3D Arduino simulator for kids, built around real-life uses. Kids wire real sensor
 modules to an Arduino Uno on a 3D workbench, write real Arduino C++, and watch a 3D world
 react: the porch light turns on at night, cars stop at the traffic light, the garden
-pump waters a thirsty plant, and the vault opens when the right code is typed.
+pump waters a thirsty plant, the vault opens when the right code is typed, and a robot
+car follows a black line around its track.
 
 Everything runs locally on one computer. There is no server to pay for and no account,
 and it works offline after the one-time setup.
@@ -16,6 +17,7 @@ and it works offline after the one-time setup.
 | 🚦 Traffic Town | 9 + free play | railway lamps, traffic light, beeping crossing, push-to-cross, 7-segment countdown, IR railway barrier, ultrasonic car park gate, PWM street lights, interrupt emergency stop |
 | 🌱 Smart Garden | 9 + free play | soil moisture %, moisture traffic light, automatic watering, DHT11 weather log, LCD and I2C LCD screens, RGB heat alert, L293D greenhouse roof, purple grow light |
 | 🔬 Secret Lab | 14 + graduation project | C++ basics on the lab computer (float maths, if/else, loops, arrays, ASCII/binary), binary counter, Catch the Thief, clap lights, theremin, robot arm, keypad vault, EEPROM code, joystick security camera, two-Arduino UART walkie-talkie and SPI |
+| 🤖 Robot Arena | 9 + free play | a two-wheeled robot car with two L293D motor drivers: first drive, square dance (functions and loops), bumper car, tunnel headlights, ultrasonic "don't crash", line follower, PWM school zone, a maze solved by turning the head servo, joystick remote control |
 
 Every mission is tagged with the lessons of the Arduino course (Levels 1-3) it
 practises. The **📘 Course map** (on the welcome screen and in the mission list) shows
@@ -31,6 +33,8 @@ all 30 lessons and opens the matching missions.
 - **Two Arduinos:** some Level 3 missions put Arduino A and Arduino B side by side, each
   with its own code and Serial Monitor, talking over UART or hand-made SPI.
 - **⛶ Full screen** for the world, the workbench and the code/blocks panel.
+- **🎥 Follow the robot:** in the Robot Arena the camera can ride along with the robot.
+  The robot shows the parts that are on the workbench, and draws its path on the mat.
 
 ## Running it
 
@@ -74,7 +78,9 @@ Browser (React + Three.js)
  ├─ 3D workbench                    ← jumper wires form electrical nets
  ├─ Code editor                     → POST /api/compile
  └─ Simulation loop
-      ├─ world simulation: cars, trains, visitors, soil, thieves ... (pure logic, also used by the tests)
+      ├─ world simulation: cars, trains, visitors, soil, thieves, the robot car's wheels and
+      │    collisions ... (pure logic, also used by the tests). While a program runs the world
+      │    moves by the Arduino's own clock, so a delay(300) turn is the same on any computer
       ├─ avr8js: real ATmega328P emulators (one or two) running the compiled .hex
       │    timers, PWM, ADC, USART, I2C (TWI), EEPROM and external interrupts;
       │    two boards run in lockstep so signals cross between them on time
@@ -101,6 +107,7 @@ unchanged. Code that works here works on a real board with the same wiring.
 | `src/sim/session.ts` | The main loop: world simulation, chip, objectives, sounds, EEPROM kept between runs |
 | `src/devices/` | Module definitions (pins), behaviour, and the HD44780 LCD controller |
 | `src/worlds/<world>/` | Each world: `index.ts` (devices, controls), `sim.ts` (actors), `missions.ts`, `scenarios.ts` (test play-throughs), `Scene.tsx` (3D) |
+| `src/worlds/robot/` | Robot Arena: `arena.ts` (mat, walls, line track, tunnel...), `sim.ts` (robot physics and sensors) |
 | `src/worlds/course.ts` | The Arduino course lessons that missions are tagged with |
 | `src/bench/` | 3D workbench: Uno boards, power rail, modules (draggable), wires, LCD screens, parts box |
 | `src/blocks/` | Block coding: Arduino blocks, the C++ generator, and the Blockly editor (loaded on demand) |
@@ -126,4 +133,4 @@ course lessons and objectives. Objectives are small functions such as
 ## Roadmap
 
 - **Next:** run the emulators in a Web Worker for low-end laptops; starter blocks for the first missions
-- **Later:** Robot Arena with physics; ESP32 with Wi-Fi so a phone on the same Wi-Fi can control the simulated house through a QR code; upload to a real board over USB (WebSerial); a desktop installer
+- **Later:** ESP32 with Wi-Fi so a phone on the same Wi-Fi can control the simulated house (or drive the robot) through a QR code; upload to a real board over USB (WebSerial); a desktop installer

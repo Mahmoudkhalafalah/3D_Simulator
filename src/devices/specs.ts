@@ -24,7 +24,8 @@ export type DeviceType =
   | 'motor'
   | 'keypad'
   | 'joystick'
-  | 'sound';
+  | 'sound'
+  | 'line';
 
 export type PinRole = 'gnd' | 'vcc' | 'sig';
 
@@ -265,6 +266,14 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
     pins: [{ ...sigOut('AO', 'A', 'AO (analog loudness)', true), optional: true }, GND, VCC, { ...sigOut('DO', 'D', 'DO (HIGH when loud)'), optional: true }],
     pcb: '#0e7490',
     size: [2.6, 3.0],
+  },
+  line: {
+    type: 'line',
+    title: 'Line sensor (TCRT5000)',
+    blurb: 'Looks down at the floor with infrared light. OUT is HIGH over a black line and LOW over the white floor.',
+    pins: [VCC, GND, sigOut('OUT', 'O', 'OUT (HIGH over a black line)')],
+    pcb: '#1e3a8a',
+    size: [2.4, 3.0],
   },
 };
 

@@ -24,6 +24,7 @@ export function baseSense(inputs: WorldInputs): SenseMap {
     sound: (id) => v[id] ?? 0,
     key: (id) => inputs.keys[id] ?? null,
     axis: (id, axis) => v[`${id}.${axis}`] ?? 0.5,
+    line: () => false,
   };
 }
 
